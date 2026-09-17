@@ -3,7 +3,7 @@
 > **Statut** : Roborock **ne publie aucune documentation d'API**. Tout ce fichier est établi par lecture
 > du code de `python-roborock` **7.8.0** (fichier `roborock/web_api.py` sauf mention contraire) et
 > corroboré par l'intégration Home Assistant. Les endpoints peuvent changer sans préavis.
-> **Date** : 2026-09-17.
+> **Date** : 2026-09-17 — **§ 8 complété et rendu exhaustif le 2026-09-18** (cycle UC03).
 >
 > Le plugin **n'appelle pas ces endpoints directement** (cf. `jeeroborock-architecture.md` D2) : il passe
 > par la lib, dans le démon. Ce fichier sert à **comprendre le coût, les limites et les échecs possibles**
@@ -167,18 +167,94 @@ création. En lecture, à tester.
 | MAJ silencieuse on/off | `PUT <rriot.r.a>/user/devices/<duid>` (`silentOtaSwitch`) | `set_silent_ota` |
 | Catalogue produits & schémas | `GET <base>/api/v4/product` | `get_products` |
 
-## 8. Exceptions de la lib → messages utilisateur
+## 8. Exceptions de la lib → codes stables → messages utilisateur
 
-`roborock/exceptions.py` : `RoborockInvalidEmail`, `RoborockAccountDoesNotExist`, `RoborockInvalidCode`,
-`RoborockTooFrequentCodeRequests`, `RoborockNoUserAgreement`, `RoborockInvalidUserAgreement`,
-`RoborockInvalidCredentials`, `RoborockRateLimit`, `RoborockTooManyRequest`,
-`RoborockNoResponseFromBaseURL`, `RoborockMissingParameters`, `RoborockConnectionException`,
-`RoborockTimeout`, `RoborockDeviceBusy`, `RoborockInvalidStatus` (action verrouillée),
-`RoborockUnsupportedFeature`, `CommandVacuumError` / `VacuumError`, `RoborockParsingException`.
+> ⚠️ **Source de vérité du mapping** : `.memory/specs/MVP/03-pont-php-demon-tech.md`, section
+> « Table exhaustive — exception → code stable → message français ». Elle est **figée en UC03** et
+> consommée par UC04→09. Implémentations : `resources/demond/erreurs.py` (`TABLE_CODES`, exception → code)
+> et `jeeroborockDaemon::tableMessages()` (code → littérale `__()`). En cas de divergence avec le tableau
+> ci-dessous, **la spec technique UC03 fait foi**.
 
-→ Le démon doit **mapper ces types en codes stables** (ex. `AUTH_CODE_INVALID`, `AUTH_EXPIRED`,
-`RATE_LIMIT`, `DEVICE_OFFLINE`, `DEVICE_BUSY`, `UNSUPPORTED`) pour que le PHP traduise en français
-(chaînes littérales `__()`) sans parser des messages anglais.
+`roborock/exceptions.py` de **`python-roborock` 7.8.0** — version **exacte** épinglée par
+`plugin_info/packages.json` — définit **23 classes**, toutes dérivées de `RoborockException`. La liste
+ci-dessous est **exhaustive** (complétée le **2026-09-18** en UC03 ; la rédaction précédente de ce § n'en
+citait que 18, explicitement à titre d'exemple). ⚠️ **À revérifier à chaque montée de version majeure**
+de la librairie : l'API des exceptions n'est pas stable entre majeures — c'est précisément la raison de
+l'épinglage en version exacte.
+
+### 8.1 Les 23 exceptions de la lib → code stable (erreurs d'**opération**, HTTP 200 `success:false`)
+
+| Exception `python-roborock` 7.8.0 | Code stable | Message français |
+|---|---|---|
+| `RoborockInvalidCredentials` | `AUTH_EXPIRED` | Session Roborock expirée : une nouvelle authentification par code e-mail est nécessaire. |
+| `RoborockInvalidCode` | `AUTH_CODE_INVALID` | Code de connexion invalide ou expiré. |
+| `RoborockTooFrequentCodeRequests` | `AUTH_CODE_TOO_FREQUENT` | Trop de demandes de code de connexion : patientez quelques minutes avant de réessayer. |
+| `RoborockInvalidEmail` | `AUTH_EMAIL_INVALID` | L'adresse e-mail du compte Roborock est invalide. |
+| `RoborockAccountDoesNotExist` | `AUTH_ACCOUNT_UNKNOWN` | Aucun compte Roborock ne correspond à cette adresse e-mail. |
+| `RoborockNoUserAgreement` | `AUTH_AGREEMENT_REQUIRED` | Les conditions d'utilisation Roborock n'ont pas été acceptées : ouvrez l'application mobile Roborock pour les accepter. |
+| `RoborockInvalidUserAgreement` | `AUTH_AGREEMENT_OUTDATED` | Les conditions d'utilisation Roborock ont changé : ouvrez l'application mobile Roborock pour les accepter à nouveau. |
+| `RoborockRateLimit` | `RATE_LIMIT` | Quota d'appels Roborock atteint : patientez avant de réessayer. Ce quota est partagé avec l'application mobile Roborock. |
+| `RoborockTooManyRequest` | `RATE_LIMIT_REMOTE` | Le cloud Roborock a refusé la demande (trop de requêtes) : patientez avant de réessayer. |
+| `RoborockNoResponseFromBaseURL` | `CLOUD_UNREACHABLE` | Le cloud Roborock est injoignable : vérifiez l'accès à Internet de Jeedom. |
+| `RoborockUrlException` | `CLOUD_REGION_UNKNOWN` | Impossible de déterminer le serveur Roborock de ce compte. |
+| `RoborockMissingParameters` | `CLOUD_BAD_REQUEST` | Le cloud Roborock a rejeté la demande (paramètres manquants). Consultez le log du démon. |
+| `RoborockParsingException` | `PARSING_ERROR` | Réponse incompréhensible du cloud Roborock. Consultez le log du démon. |
+| `RoborockConnectionException` | `CONNECTION_FAILED` | La connexion avec le cloud Roborock ou le robot a échoué. |
+| `RoborockTimeout` | `ROBOROCK_TIMEOUT` | Le cloud Roborock ou le robot n'a pas répondu dans le délai imparti. |
+| `RoborockBackoffException` | `RETRY_EXHAUSTED` | Plusieurs tentatives de communication ont échoué : réessayez plus tard. |
+| `RoborockDeviceBusy` | `DEVICE_BUSY` | Le robot est occupé : il ne peut pas traiter cette demande maintenant. |
+| `RoborockInvalidStatus` | `DEVICE_ACTION_REFUSED` | Le robot a refusé l'action dans son état actuel. |
+| `VacuumError` | `DEVICE_ERROR` | Le robot signale une erreur : consultez son état dans l'application Roborock. |
+| `CommandVacuumError` | `DEVICE_COMMAND_ERROR` | Le robot a signalé une erreur en exécutant la commande. |
+| `RoborockUnsupportedFeature` | `UNSUPPORTED` | Cette fonction n'est pas disponible sur ce modèle de robot. |
+| `UnknownMethodError` | `UNSUPPORTED_COMMAND` | Le robot ne reconnaît pas cette commande. |
+| `RoborockException` *(classe de base, non spécialisée)* | `ROBOROCK_ERROR` | Erreur Roborock non identifiée. Consultez le log du démon. |
+
+**Deux paires volontairement non fusionnées** : `RATE_LIMIT` (limiteur **interne à la lib**, déclenché
+avant tout appel réseau — l'attente est prévisible) vs `RATE_LIMIT_REMOTE` (refus **du serveur** Roborock
+— le compte est potentiellement déjà pénalisé, y compris dans l'application mobile) ; `DEVICE_ERROR`
+(le robot est en défaut) vs `DEVICE_COMMAND_ERROR` (la commande précise a échoué).
+
+`VacuumError` / `CommandVacuumError` retombent **délibérément** sur un message générique renvoyant vers
+l'application mobile : le libellé précis d'une erreur robot dépend du modèle et du firmware, il n'a pas
+à être figé en PHP.
+
+### 8.2 États propres au démon (même famille de codes, sans exception de la lib)
+
+| Origine | Code stable | Message français |
+|---|---|---|
+| `asyncio.TimeoutError` (budget de l'opération épuisé) | `OPERATION_TIMEOUT` | L'opération n'a pas abouti dans le délai imparti. |
+| état démon, émis dès UC05 | `NOT_AUTHENTICATED` | Le compte Roborock n'est pas lié : authentifiez-vous depuis la configuration du plugin. |
+| état démon, émis dès UC07 | `DEVICE_UNKNOWN` | Robot inconnu du démon : relancez une synchronisation des équipements. |
+| état démon | `DEVICE_OFFLINE` | Le robot est hors ligne : il ne répond pas au cloud Roborock. |
+| `aiohttp.ClientError`, `OSError` | `CLOUD_UNREACHABLE` | *(idem § 8.1)* |
+| tout le reste | `INTERNAL_ERROR` | Erreur interne du démon. Consultez le log du démon. |
+
+### 8.3 Pour mémoire — codes du **canal** PHP↔démon (hors cloud Roborock)
+
+Disjoints par construction des codes ci-dessus : ils ne décrivent pas un refus de Roborock mais une
+défaillance du tuyau local. Justification et statuts HTTP : spec technique UC03.
+
+| Code | Origine | Sens |
+|---|---|---|
+| `DAEMON_UNREACHABLE` | PHP (transport) | connexion refusée ou impossible — le démon ne répond pas |
+| `DAEMON_TIMEOUT` | PHP (transport) | budget épuisé sans réponse |
+| `DAEMON_INVALID_RESPONSE` | PHP (transport) | corps illisible / enveloppe non conforme |
+| `UNAUTHORIZED` | démon, HTTP 401 | apikey du plugin refusée |
+| `BAD_REQUEST` | démon, HTTP 400/413 | requête du plugin rejetée |
+| `UNKNOWN_OPERATION` | démon, HTTP 404 | opération absente du registre |
+| `INTERNAL_ERROR` | démon, HTTP 500 | exception non rattrapée |
+
+### 8.4 Règles de mapping figées en UC03
+
+- Mapping par **parcours du MRO sur le *nom* de classe**, sans importer `roborock.exceptions` : si une
+  future version renomme ou supprime une exception, le démon ne casse pas à l'import — l'exception
+  retombe sur `RoborockException`, toujours présente dans son MRO, donc sur `ROBOROCK_ERROR`.
+- Le démon ne renvoie **jamais** `str(exception)` : `error.message` porte un nom de classe ou un
+  identifiant fixe, et n'est **jamais affiché**. Le PHP ne doit détenir aucune chaîne anglaise affichable,
+  et `str(exception)` d'une librairie peut contenir une URL signée.
+- La table PHP est livrée **complète** dès UC03, codes émis plus tard compris : c'est une table de
+  **données contractuelle**, pas du code mort.
 
 ## Sources
 

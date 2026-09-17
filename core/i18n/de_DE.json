@@ -6,7 +6,13 @@
         "Canal local avec le démon": "Lokaler Kanal mit dem Daemon",
         "Port du canal local": "Port des lokalen Kanals",
         "Port TCP utilisé sur 127.0.0.1 pour dialoguer avec le démon. À ne changer qu'en cas de conflit avec un autre service.": "TCP-Port, der auf 127.0.0.1 verwendet wird, um mit dem Daemon zu kommunizieren. Nur bei Konflikten mit einem anderen Dienst ändern.",
-        "Le niveau de journalisation se règle dans le bloc Log de cette page.": "Die Protokollstufe wird im Log-Block dieser Seite eingestellt."
+        "Le niveau de journalisation se règle dans le bloc Log de cette page.": "Die Protokollstufe wird im Log-Block dieser Seite eingestellt.",
+        "Diagnostic": "Diagnose",
+        "Vérifier le canal": "Kanal prüfen",
+        "Vérification en cours…": "Prüfung läuft…",
+        "Canal opérationnel": "Kanal funktionsfähig",
+        "Le démon ne répond pas.": "Der Daemon antwortet nicht.",
+        "Le callback vers Jeedom n'est pas joignable : les mises à jour spontanées ne fonctionneront pas.": "Der Callback zu Jeedom ist nicht erreichbar: Spontane Aktualisierungen funktionieren nicht."
     },
     "plugins/jeeroborock/core/class/jeeroborock.class.php": {
         "L'adresse e-mail du compte Roborock est invalide.": "Die E-Mail-Adresse des Roborock-Kontos ist ungültig.",
@@ -19,5 +25,47 @@
         "Log du démon": "Daemon-Log",
         "Impossible de déterminer l'état du démon, consultez le log du plugin.": "Der Status des Daemons kann nicht ermittelt werden, prüfen Sie das Plugin-Log.",
         "La version %s de python-roborock est plus récente que la version majeure validée par le plugin (%s) : le fonctionnement n'est pas garanti.": "Die Version %s von python-roborock ist neuer als die vom Plugin validierte Hauptversion (%s): Der Betrieb ist nicht gewährleistet."
+    },
+    "plugins/jeeroborock/core/class/jeeroborockDaemon.class.php": {
+        "Erreur inattendue du démon. Consultez le log du plugin.": "Unerwarteter Daemon-Fehler. Prüfen Sie das Plugin-Log.",
+        "Le démon ne répond pas : vérifiez qu'il est démarré dans la configuration du plugin.": "Der Daemon antwortet nicht: Prüfen Sie, ob er in der Plugin-Konfiguration gestartet ist.",
+        "Le démon n'a pas répondu dans le délai imparti.": "Der Daemon hat nicht innerhalb der vorgesehenen Zeit geantwortet.",
+        "Réponse inattendue du démon. Consultez le log du démon.": "Unerwartete Antwort des Daemons. Prüfen Sie das Daemon-Log.",
+        "Le démon a refusé la clé d'API du plugin. Redémarrez le démon depuis la configuration du plugin.": "Der Daemon hat den API-Schlüssel des Plugins abgelehnt. Starten Sie den Daemon über die Plugin-Konfiguration neu.",
+        "Le démon a rejeté la requête du plugin. Consultez le log du démon.": "Der Daemon hat die Anfrage des Plugins abgelehnt. Prüfen Sie das Daemon-Log.",
+        "Le démon ne connaît pas l'opération demandée (%s). Redémarrez le démon après une mise à jour du plugin.": "Der Daemon kennt die angeforderte Operation (%s) nicht. Starten Sie den Daemon nach einem Plugin-Update neu.",
+        "Erreur interne du démon. Consultez le log du démon.": "Interner Daemon-Fehler. Prüfen Sie das Daemon-Log.",
+        "L'opération n'a pas abouti dans le délai imparti.": "Der Vorgang wurde nicht innerhalb der vorgesehenen Zeit abgeschlossen.",
+        "Le compte Roborock n'est pas lié : authentifiez-vous depuis la configuration du plugin.": "Das Roborock-Konto ist nicht verknüpft: Authentifizieren Sie sich über die Plugin-Konfiguration.",
+        "Robot inconnu du démon : relancez une synchronisation des équipements.": "Roboter unbekannt beim Daemon: Führen Sie erneut eine Geräte-Synchronisierung aus.",
+        "Le robot est hors ligne : il ne répond pas au cloud Roborock.": "Der Roboter ist offline: Er antwortet der Roborock-Cloud nicht.",
+        "Session Roborock expirée : une nouvelle authentification par code e-mail est nécessaire.": "Roborock-Sitzung abgelaufen: Eine neue Authentifizierung per E-Mail-Code ist erforderlich.",
+        "Code de connexion invalide ou expiré.": "Anmeldecode ungültig oder abgelaufen.",
+        "Trop de demandes de code de connexion : patientez quelques minutes avant de réessayer.": "Zu viele Anfragen für einen Anmeldecode: Warten Sie einige Minuten, bevor Sie es erneut versuchen.",
+        "L'adresse e-mail du compte Roborock est invalide.": "Die E-Mail-Adresse des Roborock-Kontos ist ungültig.",
+        "Aucun compte Roborock ne correspond à cette adresse e-mail.": "Kein Roborock-Konto entspricht dieser E-Mail-Adresse.",
+        "Les conditions d'utilisation Roborock n'ont pas été acceptées : ouvrez l'application mobile Roborock pour les accepter.": "Die Roborock-Nutzungsbedingungen wurden nicht akzeptiert: Öffnen Sie die Roborock-App, um sie zu akzeptieren.",
+        "Les conditions d'utilisation Roborock ont changé : ouvrez l'application mobile Roborock pour les accepter à nouveau.": "Die Roborock-Nutzungsbedingungen haben sich geändert: Öffnen Sie die Roborock-App, um sie erneut zu akzeptieren.",
+        "Quota d'appels Roborock atteint : patientez avant de réessayer. Ce quota est partagé avec l'application mobile Roborock.": "Roborock-Aufrufkontingent erreicht: Warten Sie, bevor Sie es erneut versuchen. Dieses Kontingent wird mit der Roborock-App geteilt.",
+        "Le cloud Roborock a refusé la demande (trop de requêtes) : patientez avant de réessayer.": "Die Roborock-Cloud hat die Anfrage abgelehnt (zu viele Anfragen): Warten Sie, bevor Sie es erneut versuchen.",
+        "Le cloud Roborock est injoignable : vérifiez l'accès à Internet de Jeedom.": "Die Roborock-Cloud ist nicht erreichbar: Prüfen Sie den Internetzugang von Jeedom.",
+        "Impossible de déterminer le serveur Roborock de ce compte.": "Der Roborock-Server dieses Kontos kann nicht ermittelt werden.",
+        "Le cloud Roborock a rejeté la demande (paramètres manquants). Consultez le log du démon.": "Die Roborock-Cloud hat die Anfrage abgelehnt (fehlende Parameter). Prüfen Sie das Daemon-Log.",
+        "Réponse incompréhensible du cloud Roborock. Consultez le log du démon.": "Unverständliche Antwort der Roborock-Cloud. Prüfen Sie das Daemon-Log.",
+        "La connexion avec le cloud Roborock ou le robot a échoué.": "Die Verbindung mit der Roborock-Cloud oder dem Roboter ist fehlgeschlagen.",
+        "Le cloud Roborock ou le robot n'a pas répondu dans le délai imparti.": "Die Roborock-Cloud oder der Roboter hat nicht innerhalb der vorgesehenen Zeit geantwortet.",
+        "Plusieurs tentatives de communication ont échoué : réessayez plus tard.": "Mehrere Kommunikationsversuche sind fehlgeschlagen: Versuchen Sie es später erneut.",
+        "Le robot est occupé : il ne peut pas traiter cette demande maintenant.": "Der Roboter ist beschäftigt: Er kann diese Anfrage jetzt nicht bearbeiten.",
+        "Le robot a refusé l'action dans son état actuel.": "Der Roboter hat die Aktion in seinem aktuellen Zustand abgelehnt.",
+        "Le robot signale une erreur : consultez son état dans l'application Roborock.": "Der Roboter meldet einen Fehler: Prüfen Sie seinen Status in der Roborock-App.",
+        "Le robot a signalé une erreur en exécutant la commande.": "Der Roboter hat beim Ausführen des Befehls einen Fehler gemeldet.",
+        "Cette fonction n'est pas disponible sur ce modèle de robot.": "Diese Funktion ist bei diesem Robotermodell nicht verfügbar.",
+        "Le robot ne reconnaît pas cette commande.": "Der Roboter erkennt diesen Befehl nicht.",
+        "Erreur Roborock non identifiée. Consultez le log du démon.": "Nicht identifizierter Roborock-Fehler. Prüfen Sie das Daemon-Log."
+    },
+    "plugins/jeeroborock/core/ajax/jeeroborock.ajax.php": {
+        "401 - Accès non autorisé": "401 - Unbefugter Zugriff",
+        "Aucune méthode correspondante à": "Keine passende Methode für",
+        "Une erreur interne est survenue. Consultez le log du plugin.": "Ein interner Fehler ist aufgetreten. Prüfen Sie das Plugin-Log."
     }
 }

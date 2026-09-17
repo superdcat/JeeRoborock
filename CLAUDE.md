@@ -63,7 +63,14 @@ Disposition Jeedom fixe (type MVC), nommée d'après l'id `jeeroborock`.
 - **`core/class/jeeroborockDaemon.class.php`** — ⚠️ **la brique unique d'accès au démon**, dans son
   **propre** fichier parce qu'elle est appelée depuis des points d'entrée externes (AJAX, cron, callback)
   et doit donc être trouvable par l'autoloader. **Tout** échange PHP → démon passe par là : aucun appel
-  HTTP épars ailleurs dans le code. `jeeroborockException` porte les erreurs typées du plugin.
+  HTTP épars ailleurs dans le code. Posée en UC03 : `appeler('<operation>', array(...))` est le **seul**
+  point d'extension des UC suivantes — jamais une nouvelle route HTTP. `tableMessages()` y traduit les
+  codes d'erreur stables du démon en français.
+- **`core/class/jeeroborockException.class.php`** — `jeeroborockException` porte les erreurs typées du
+  plugin (code stable en propriété dédiée : `Exception::getCode()` est typé `int` et ne peut pas le
+  porter). Elle a son **propre** fichier, même règle d'autoload que ci-dessus. ⚠️ `estErreurCanal()` y
+  duplique la liste des codes « canal » de `tableMessages()` — un nouveau code de famille A ou B doit être
+  ajouté **dans les deux fichiers**, et aucun contrôle automatique ne détecte l'oubli.
 - **`core/ajax/jeeroborock.ajax.php`** — endpoint AJAX **admin** de la page de configuration : inclut le
   core, `isConnect('admin')`, `ajax::init()`, puis aiguille sur `init('action')`. Pour un endpoint
   **non-admin** (widget de dashboard, page-panneau — ex. la vue carte), créer un fichier AJAX **distinct**
@@ -128,7 +135,12 @@ Disposition Jeedom fixe (type MVC), nommée d'après l'id `jeeroborock`.
   autres plugins qui en sont issus). La lib `jeedom/` a été **forkée et allégée** en UC02 : elle ne
   fournit plus que `jeedom_com` (démon→Jeedom) et `jeedom_utils`, sur `urllib.request` — celle du
   squelette importe `serial`/`pyudev`/`requests`, absents du venv, et levait un `ImportError` au
-  démarrage.
+  démarrage. Depuis UC03, le routage vit dans **`canal.py`** (registre d'opérations, middlewares,
+  `POST /rpc` + `GET /sante`) et le mapping des exceptions dans **`erreurs.py`** ; `jeeroborockd.py` ne
+  garde que le cycle de vie. Ajouter une opération = `canal.enregistrer('<nom>', <coroutine>)`.
+  ⚠️ Ces coroutines tournent dans la **boucle asyncio unique** du démon : tout appel bloquant gèle **tout**
+  le canal, `/sante` compris, et se présente à l'utilisateur comme « le démon ne répond pas » alors que le
+  démon est vivant. Tout code bloquant passe par `asyncio.to_thread`.
 - **Deux canaux, et c'est le vrai point d'architecture du plugin.** Le `jeedom_socket` du squelette est
   *fire-and-forget*, or quatre opérations de la page de configuration exigent une **réponse immédiate**
   (envoyer le code e-mail, le valider, découvrir les robots, lister les routines). D'où :

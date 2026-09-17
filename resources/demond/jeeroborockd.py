@@ -14,17 +14,21 @@
 # along with Jeedom. If not, see <http://www.gnu.org/licenses/>.
 #
 #
-# Demon du plugin JeeRoborock (UC02 : dependances Python et demon).
+# Demon du plugin JeeRoborock (UC02 : dependances Python et demon ; UC03 : canal
+# PHP<->demon).
 #
 # A ce stade, aucune logique Roborock n'est implementee : le demon ouvre son canal
 # HTTP local (127.0.0.1 uniquement), journalise la version de python-roborock
 # effectivement chargee et repond a un healthcheck. Renomme depuis le "demond.py" du
 # squelette : garder ce nom generique aurait fait tuer, par system::kill(), les demons
 # des AUTRES plugins issus du meme squelette (D-b de la spec technique UC02).
+#
+# handler_sante, verifier_apikey et construire_application ont ete DEPLACES vers
+# canal.py en UC03 (D-g) : ce fichier va accueillir tout le metier d'UC04->09 et
+# depassait deja 224 lignes. Le contrat de GET /sante est inchange.
 
 import argparse
 import asyncio
-import hmac
 import logging
 import os
 import signal
@@ -33,6 +37,7 @@ import time
 
 from aiohttp import web
 
+from canal import construire_application
 from jeedom.jeedom import jeedom_com, jeedom_utils
 
 MAJEURE_VALIDEE = 7            # version majeure de python-roborock validee par le plugin
@@ -82,41 +87,6 @@ def detecter_version():
     return (str(_VERSION_ROBOROCK), majeure > MAJEURE_VALIDEE)
 
 
-@web.middleware
-async def verifier_apikey(requete, gestionnaire):
-    apikey_recue = requete.headers.get("X-Apikey", "")
-    if not hmac.compare_digest(apikey_recue, requete.app["apikey"]):
-        return web.json_response(
-            {"success": False, "error": {"code": "UNAUTHORIZED", "message": "Apikey invalide"}},
-            status=401,
-        )
-    return await gestionnaire(requete)
-
-
-async def handler_sante(requete):
-    contexte = requete.app["contexte"]
-    duree = int(time.time() - contexte["demarrage"])
-    return web.json_response({
-        "success": True,
-        "data": {
-            "version": contexte["version"],
-            "majeureValidee": MAJEURE_VALIDEE,
-            "avertissementVersion": contexte["avertissement"],
-            "callback": contexte["callback_ok"],
-            "pid": os.getpid(),
-            "dureeFonctionnement": duree,
-        },
-    })
-
-
-def construire_application(apikey, contexte):
-    application = web.Application(middlewares=[verifier_apikey])
-    application["apikey"] = apikey
-    application["contexte"] = contexte
-    application.router.add_get("/sante", handler_sante)
-    return application
-
-
 async def demarrer_serveur(application, port):
     executeur = web.AppRunner(application, access_log=None)
     await executeur.setup()
@@ -163,6 +133,7 @@ async def principal_async(args):
 
     contexte = {
         "version": version,
+        "majeureValidee": MAJEURE_VALIDEE,
         "avertissement": avertissement,
         "callback_ok": callback_ok,
         "demarrage": time.time(),

@@ -49,5 +49,38 @@ if (!isConnect('admin')) {
         <div class="alert alert-info">{{Le niveau de journalisation se règle dans le bloc Log de cette page.}}</div>
       </div>
     </div>
+    <div class="form-group">
+      <label class="col-md-4 control-label">{{Diagnostic}}</label>
+      <div class="col-md-8">
+        <a class="btn btn-default" id="bt_jeeroborockVerifierCanal">{{Vérifier le canal}}</a>
+        <span id="jeeroborockResultatCanal"></span>
+      </div>
+    </div>
   </fieldset>
 </form>
+<script>
+  $('#bt_jeeroborockVerifierCanal').on('click', function () {
+    var zoneResultat = $('#jeeroborockResultatCanal');
+    zoneResultat.text("{{Vérification en cours…}}");
+    $.ajax({
+      type: 'POST',
+      url: 'plugins/jeeroborock/core/ajax/jeeroborock.ajax.php',
+      data: {action: 'santeCanal'},
+      dataType: 'json',
+      error: function (requete) {
+        zoneResultat.text("{{Le démon ne répond pas.}}");
+      },
+      success: function (donnees) {
+        if (donnees.state != 'ok') {
+          zoneResultat.text(donnees.result);
+          return;
+        }
+        var message = "{{Canal opérationnel}}";
+        if (!donnees.result.callback) {
+          message = "{{Le callback vers Jeedom n'est pas joignable : les mises à jour spontanées ne fonctionneront pas.}}";
+        }
+        zoneResultat.text(message);
+      }
+    });
+  });
+</script>
