@@ -11,6 +11,13 @@
     "plugins/jeeroborock/core/class/jeeroborock.class.php": {
         "L'adresse e-mail du compte Roborock est invalide.": "La dirección de correo electrónico de la cuenta Roborock no es válida.",
         "Le port du canal local doit être un nombre entier compris entre 1024 et 65535.": "El puerto del canal local debe ser un número entero comprendido entre 1024 y 65535.",
-        "Le port du canal local %s est déjà utilisé sur cette machine, veuillez en choisir un autre.": "El puerto del canal local %s ya está en uso en esta máquina, elija otro."
+        "Le port du canal local %s est déjà utilisé sur cette machine, veuillez en choisir un autre.": "El puerto del canal local %s ya está en uso en esta máquina, elija otro.",
+        "Les dépendances Python sont en cours d'installation.": "Las dependencias de Python se están instalando.",
+        "Les dépendances Python ne sont pas installées.": "Las dependencias de Python no están instaladas.",
+        "Le démon ne peut pas être démarré : %s": "El demonio no se puede iniciar: %s",
+        "Le démon n'a pas démarré dans le temps imparti, consultez le log du démon.": "El demonio no se inició en el tiempo previsto, consulte el registro del demonio.",
+        "Log du démon": "Registro del demonio",
+        "Impossible de déterminer l'état du démon, consultez le log du plugin.": "No se puede determinar el estado del demonio, consulte el registro del plugin.",
+        "La version %s de python-roborock est plus récente que la version majeure validée par le plugin (%s) : le fonctionnement n'est pas garanti.": "La versión %s de python-roborock es más reciente que la versión mayor validada por el plugin (%s): no se garantiza el funcionamiento."
     }
 }

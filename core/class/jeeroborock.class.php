@@ -31,6 +31,9 @@ class jeeroborock extends eqLogic {
   // A garder synchronisée avec core/config/jeeroborock.config.ini.
   const PORT_DEMON_HTTP_DEFAUT = 61350;
 
+  // Délai maximal (secondes) laissé au démon pour démarrer avant de considérer l'échec.
+  const DELAI_DEMARRAGE_DEMON = 30;
+
   // Attention : userData contient le jeton de session et les identifiants dérivés rriot.
   // Ne jamais définir preConfig_userData / postConfig_userData : une exception levée depuis
   // une frame qui reçoit ce paramètre exposerait le secret via displayException() (trace complète
@@ -104,6 +107,233 @@ class jeeroborock extends eqLogic {
       log::add('jeeroborock', 'warning', 'Port du canal local ' . $_port . ' deja occupe sur cette machine');
       message::add('jeeroborock', sprintf(__('Le port du canal local %s est déjà utilisé sur cette machine, veuillez en choisir un autre.', __FILE__), $_port), '', 'port_occupe');
     }
+  }
+
+  /*     * *****************Cycle de vie du démon**************************** */
+
+  // Etat du démon pour l'interface standard Jeedom (modale démon, plugin::checkDeamon).
+  // NE LEVE JAMAIS (appelée sans try/catch par le core) et ne consulte jamais email/userData
+  // (le démon doit être "actif" sans compte Roborock configuré).
+  public static function deamon_info() {
+    $retour = array(
+      'log' => 'jeeroborock_demon',
+      'launchable' => 'nok',
+      'launchable_message' => '',
+      'state' => 'nok',
+    );
+    try {
+      if (self::pidDemonActif() > 0) {
+        $retour['state'] = 'ok';
+        $retour['launchable'] = 'ok';
+        return $retour;
+      }
+      $cause = self::causeNonLancable();
+      if ($cause == '') {
+        $retour['launchable'] = 'ok';
+      } else {
+        $retour['launchable_message'] = $cause;
+      }
+      return $retour;
+    } catch (Throwable $e) {
+      log::add('jeeroborock', 'error', 'deamon_info en erreur : ' . $e->getMessage());
+      return array(
+        'log' => 'jeeroborock_demon',
+        'launchable' => 'nok',
+        'launchable_message' => __('Impossible de déterminer l\'état du démon, consultez le log du plugin.', __FILE__),
+        'state' => 'nok',
+      );
+    }
+  }
+
+  // Démarre le démon Python. Appelée par le core uniquement si launchable == 'ok' et
+  // state == 'nok', et enveloppée dans un catch qui se contente d'un log::add(error) :
+  // la cause de l'échec doit donc être portée par launchable_message + message::add.
+  public static function deamon_start() {
+    self::deamon_stop();
+
+    $infos = self::deamon_info();
+    if ($infos['launchable'] != 'ok') {
+      throw new Exception(sprintf(__('Le démon ne peut pas être démarré : %s', __FILE__), $infos['launchable_message']));
+    }
+
+    $port = self::getPortDemonHttp();
+    $apikey = jeedom::getApiKey('jeeroborock');
+    $callback = network::getNetworkAccess('internal', 'http:127.0.0.1:port:comp') . '/plugins/jeeroborock/core/php/jeeJeeroborock.php';
+    $commande = system::getCmdPython3('jeeroborock')
+      . realpath(__DIR__ . '/../../resources/demond') . '/jeeroborockd.py'
+      . ' --loglevel ' . log::convertLogLevel(log::getLogLevel('jeeroborock'))
+      . ' --port ' . escapeshellarg($port)
+      . ' --callback ' . escapeshellarg($callback)
+      . ' --apikey ' . escapeshellarg($apikey)
+      . ' --pid ' . self::cheminFichierPid();
+
+    // L'apikey est masquée dans le log : elle ne doit apparaître nulle part en clair.
+    // On cherche la forme ECHAPPEE, la seule réellement présente dans la commande : chercher la
+    // forme brute échouerait silencieusement dès que escapeshellarg() la fragmente (apostrophe).
+    log::add('jeeroborock', 'debug', 'Démarrage du démon : ' . str_replace(escapeshellarg($apikey), escapeshellarg('********'), $commande));
+
+    file_put_contents(self::cheminFichierPort(), $port);
+
+    exec($commande . ' >> ' . log::getPathToLog('jeeroborock_demon') . ' 2>&1 &');
+
+    // Le hook est aussi appelé depuis le cron, sans session active.
+    if (session_status() === PHP_SESSION_ACTIVE) {
+      session_write_close();
+    }
+
+    for ($compteur = 0; $compteur < self::DELAI_DEMARRAGE_DEMON; $compteur++) {
+      sleep(1);
+      $etat = self::deamon_info();
+      if ($etat['state'] == 'ok') {
+        message::removeAll('jeeroborock', 'demarrageDemon');
+        return true;
+      }
+    }
+
+    log::add('jeeroborock', 'error', 'Le démon n\'a pas démarré dans le délai de ' . self::DELAI_DEMARRAGE_DEMON . ' secondes');
+    $lienLog = '<a href="index.php?v=d&p=log&log=jeeroborock_demon" target="_blank">' . __('Log du démon', __FILE__) . '</a>';
+    message::add(
+      'jeeroborock',
+      __('Le démon n\'a pas démarré dans le temps imparti, consultez le log du démon.', __FILE__) . ' ' . $lienLog,
+      '',
+      'demarrageDemon'
+    );
+    return false;
+  }
+
+  // Arrête le démon Python. Ne lève jamais (appelée par le core sans try/catch).
+  public static function deamon_stop() {
+    try {
+      $pid = self::pidDemonActif();
+      if ($pid > 0) {
+        system::kill($pid);
+      }
+      // Filet pour un démon mort avant d'avoir écrit son PID.
+      system::kill('jeeroborockd.py');
+      @unlink(self::cheminFichierPid());
+      @unlink(self::cheminFichierPort());
+      sleep(1);
+    } catch (Throwable $e) {
+      log::add('jeeroborock', 'error', 'deamon_stop en erreur : ' . $e->getMessage());
+    }
+  }
+
+  // Redémarre le démon si le port du canal local change réellement. Le garde est
+  // indispensable : postConfig_<clé> est appelé à CHAQUE enregistrement de la page de
+  // configuration, même quand la valeur ne change pas.
+  public static function postConfig_portDemonHttp($_value) {
+    $cheminPort = self::cheminFichierPort();
+    if (!file_exists($cheminPort)) {
+      return;
+    }
+    if (trim(file_get_contents($cheminPort)) == trim($_value)) {
+      return;
+    }
+    log::add('jeeroborock', 'info', 'Port du canal local modifié, redémarrage du démon');
+    self::deamon_stop();
+  }
+
+  // Appelée par le callback démon -> Jeedom (core/php/jeeJeeroborock.php) à chaque démarrage
+  // du démon : consigne la version de python-roborock détectée, avertit si sa majeure
+  // dépasse celle validée par le plugin.
+  public static function traiterVersionLibrairie($_donnees) {
+    if (!is_array($_donnees)) {
+      return;
+    }
+    $version = isset($_donnees['version']) ? substr(trim((string) $_donnees['version']), 0, 32) : '';
+    $versionPourLog = self::nettoyerPourLog($version);
+    $majeureValidee = isset($_donnees['majeureValidee']) ? intval($_donnees['majeureValidee']) : 0;
+    $avertissement = !empty($_donnees['avertissement']);
+
+    log::add('jeeroborock', 'info', 'Démon démarré avec python-roborock ' . $versionPourLog);
+
+    if ($avertissement) {
+      log::add('jeeroborock', 'warning', 'Version de python-roborock (' . $versionPourLog . ') plus recente que la majeure validee (' . $majeureValidee . ')');
+      // Echappement HTML : message::add() rend son contenu en HTML brut cote UI Jeedom.
+      $versionEchappee = htmlspecialchars($version, ENT_QUOTES, 'UTF-8');
+      message::add(
+        'jeeroborock',
+        sprintf(__('La version %s de python-roborock est plus récente que la version majeure validée par le plugin (%s) : le fonctionnement n\'est pas garanti.', __FILE__), $versionEchappee, $majeureValidee),
+        '',
+        'version_librairie'
+      );
+    } else {
+      message::removeAll('jeeroborock', 'version_librairie');
+    }
+  }
+
+  // Retire les caracteres de controle (forge de lignes de log) d'une valeur d'origine externe
+  // et garantit un UTF-8 valide avant journalisation. A utiliser sur toute donnee externe
+  // (callback demon, entree utilisateur) injectee dans un log::add().
+  public static function nettoyerPourLog($_valeur) {
+    $valeur = (string) $_valeur;
+    $valeur = preg_replace('/[\x00-\x1F\x7F]/', '', $valeur);
+    if (!mb_check_encoding($valeur, 'UTF-8')) {
+      // mb_scrub, et non mb_convert_encoding de UTF-8 vers UTF-8 : le résultat de ce dernier sur
+      // une séquence invalide dépend du réglage mbstring.substitute_character de l'environnement.
+      $valeur = mb_scrub($valeur, 'UTF-8');
+    }
+    return $valeur;
+  }
+
+  // Chemin du fichier PID écrit par le démon (répertoire temporaire dédié au plugin).
+  private static function cheminFichierPid() {
+    return jeedom::getTmpFolder('jeeroborock') . '/demon.pid';
+  }
+
+  // Chemin du fichier mémorisant le dernier port utilisé pour lancer le démon.
+  private static function cheminFichierPort() {
+    return jeedom::getTmpFolder('jeeroborock') . '/demon.port';
+  }
+
+  // Retourne le PID du démon actif (0 si aucun). Nettoie un fichier PID périmé/recyclé.
+  private static function pidDemonActif() {
+    $cheminPid = self::cheminFichierPid();
+    if (!file_exists($cheminPid)) {
+      return 0;
+    }
+    $pid = intval(trim(file_get_contents($cheminPid)));
+    if ($pid <= 0) {
+      @unlink($cheminPid);
+      return 0;
+    }
+    if (is_dir('/proc/' . $pid)) {
+      $cmdline = @file_get_contents('/proc/' . $pid . '/cmdline');
+      $cheminScriptAttendu = realpath(__DIR__ . '/../../resources/demond') . '/jeeroborockd.py';
+      if ($cmdline !== false && strpos($cmdline, $cheminScriptAttendu) !== false) {
+        return $pid;
+      }
+      @unlink($cheminPid);
+      return 0;
+    }
+    // Repli si /proc/<pid> est absent (process mort, ou systeme sans /proc) : posix_getsid confirme que le PID existe.
+    if (function_exists('posix_getsid') && @posix_getsid($pid) !== false) {
+      return $pid;
+    }
+    @unlink($cheminPid);
+    return 0;
+  }
+
+  // Cause de non-lancabilité du démon ('' si lançable). Premier message non vide gagne.
+  private static function causeNonLancable() {
+    if (file_exists('/tmp/jeedom_install_in_progress_jeeroborock')) {
+      return __('Les dépendances Python sont en cours d\'installation.', __FILE__);
+    }
+
+    $cheminInterpreteur = trim(system::getCmdPython3('jeeroborock'));
+    if (strpos($cheminInterpreteur, '/') === 0) {
+      $cheminVenv = system::getPython3VenvDir('jeeroborock') . '/bin/python3';
+      if (!file_exists($cheminVenv)) {
+        log::add('jeeroborock', 'debug', 'Interpreteur Python attendu introuvable : ' . $cheminVenv);
+        return __('Les dépendances Python ne sont pas installées.', __FILE__);
+      }
+    }
+
+    if (self::estPortLocalOccupe(self::getPortDemonHttp())) {
+      return sprintf(__('Le port du canal local %s est déjà utilisé sur cette machine, veuillez en choisir un autre.', __FILE__), self::getPortDemonHttp());
+    }
+
+    return '';
   }
 
   /*

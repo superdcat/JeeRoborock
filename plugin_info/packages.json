@@ -1,23 +1,7 @@
 {
-  "pre-install": {
-  },
-  "apt": {
-  },
   "pip3": {
-    "pyserial" : {"reinstall" : true},
-    "requests" : {"reinstall" : true}
-  },
-  "npm": {
-    "plugins/jeeroborock/ressources/demond"  : {}
-  },
-  "composer": {
-       "plugins/jeeroborock"  : {}
-  },
-  "yarn": {
-    "plugins/jeeroborock/ressources/demond"  : {}
-  },
-  "plugin": {
-  },
-  "post-install": {
+    "python-roborock": {
+      "version": "7.8.0"
+    }
   }
 }

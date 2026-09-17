@@ -110,7 +110,10 @@ Disposition Jeedom fixe (type MVC), nommée d'après l'id `jeeroborock`.
 - **`plugin_info/info.json`** — manifeste. Valeurs actées au cadrage : `category`
   **`devicecommunication`**, `hasDependency` **true**, `hasOwnDeamon` **true**,
   `maxDependancyInstallTime` **15**, `os.min` **12** (imposé par `python-roborock`, qui exige
-  Python ≥ 3.11 — **Debian 11 est exclu**), langues `fr_FR`/`en_US`/`de_DE`/`es_ES`. La `description`
+  Python ≥ 3.11 — **Debian 11 est exclu**), langues `fr_FR`/`en_US`/`de_DE`/`es_ES`.
+  ⚠️ **`os.min` n'est lu nulle part par le core** : c'est un champ *market*. Le verrou d'activation
+  réel, posé en UC02, est **`requireOsVersion`** (`"12"`) — cf. `jeedom-dependances-et-demon.md` § 3.
+  La `description`
   multilingue se met **dans `info.json`** (objet à clés de langue), pas dans les fichiers i18n (cf. i18n).
 - **`plugin_info/install.php`** — `jeeroborock_install/update/remove()` ; `pre_install.php` →
   `jeeroborock_pre_update()`.
@@ -120,15 +123,25 @@ Disposition Jeedom fixe (type MVC), nommée d'après l'id `jeeroborock`.
 
 - **`resources/demond/`** — le démon Python. Il porte **tout** le contrat Roborock via `python-roborock` :
   authentification cloud, canal MQTT chiffré, décodage des états, catalogue de commandes, et les appels
-  HTTPS des routines. La lib `jeedom/` fournit `jeedom_socket` (PHP→démon) et `jeedom_com` (démon→Jeedom).
+  HTTPS des routines. Point d'entrée : **`jeeroborockd.py`** (renommé depuis le `demond.py` du squelette
+  en UC02 — `system::kill` procède par `ps | grep`, garder le nom du template tuerait les démons des
+  autres plugins qui en sont issus). La lib `jeedom/` a été **forkée et allégée** en UC02 : elle ne
+  fournit plus que `jeedom_com` (démon→Jeedom) et `jeedom_utils`, sur `urllib.request` — celle du
+  squelette importe `serial`/`pyudev`/`requests`, absents du venv, et levait un `ImportError` au
+  démarrage.
 - **Deux canaux, et c'est le vrai point d'architecture du plugin.** Le `jeedom_socket` du squelette est
   *fire-and-forget*, or quatre opérations de la page de configuration exigent une **réponse immédiate**
   (envoyer le code e-mail, le valider, découvrir les robots, lister les routines). D'où :
   1. **Synchrone** — le démon expose un serveur HTTP sur **`127.0.0.1` uniquement**, protégé par
      l'**apikey** du plugin, interrogé par `jeeroborockDaemon` avec des timeouts courts. `aiohttp` étant
      déjà une dépendance transitive de `python-roborock`, cela n'ajoute **aucune** dépendance.
-  2. **Push** — le callback `jeedom_com` standard (démon → `core/php/jeeJeeroborock.php`) pour les mises
-     à jour d'état non sollicitées.
+     ⚠️ `jeedom_socket` a été **supprimé** en UC02 (le canal HTTP le rend inutile, et il ouvrait un
+     second port d'écoute plus un thread) : il n'y a **qu'un** port d'écoute, `portDemonHttp`.
+  2. **Push** — le callback `jeedom_com` standard (démon → `core/php/jeeJeeroborock.php`, créé en UC02)
+     pour les mises à jour d'état non sollicitées. ⚠️ Le `.htaccess` de `core/php` interdisant tout le
+     répertoire, ce fichier y a une **exception ciblée** ; toute valeur reçue par ce callback est
+     **externe** — l'échapper avant un `message::add()` (rendu **en HTML**) et la neutraliser avant un
+     `log::add()`, cf. `jeedom-dependances-et-demon.md` §§ 5 et 7.
 - **Corollaires non triviaux** : le démon doit être **lançable sans identifiants** (le login passe par
   lui, « non authentifié » est un état normal), et il **conserve l'instance client** entre l'envoi du code
   et sa validation — l'en-tête `header_clientid` dérive d'un identifiant régénéré à chaque instanciation.
@@ -189,6 +202,16 @@ ici** ; ce point est arbitré, ne le rouvre pas.
     l'état **uniquement** depuis `checkAndInstall(packages.json)` et n'appelle jamais cette méthode
     statique (code mort). Pour un contrôle *supplémentaire*, le hook officiel est
     `additionnalDependancyCheck()` (appelé seulement si l'état `packages.json` est déjà `ok`).
+    ⚠️ **Contrepartie découverte en UC02** : la rétrogradation automatique « Dépendances non
+    installées » du core est conditionnée à `method_exists(<id>, 'dependancy_info')` — ne pas définir
+    la méthode **désactive donc ce garde-fou**. C'est `deamon_info()` qui doit porter le contrôle.
+  - ⚠️ **Purger les entrées `npm`/`yarn`/`composer` du squelette** (fait en UC02) : elles pointent vers
+    des chemins inexistants → `dependancy_info()` renvoie `nok` **définitivement**, même dépendance pip
+    installée, et sans aucun message expliquant pourquoi.
+
+> Tous les contrats du core sur les dépendances et le cycle de vie du démon (hooks `deamon_*`, état par
+> fichier PID, `requireOsVersion`, callback, pièges de journalisation) sont consignés dans
+> **`.memory/analyse/jeedom-dependances-et-demon.md`** — y aller avant de redécouvrir.
 
 ### Quotas Roborock — contrainte de conception, pas un détail
 
@@ -268,6 +291,8 @@ Le hook est **non-bloquant** : il avertit si la version n'a pas pu être incrém
   un démon, **toute** commande sortante passe par le pont démon (jamais de socket/MQTT épars).
 - Indentation **2 espaces** en PHP/JS pour `core/class`, `core/ajax`, `desktop/js`… ; ⚠️ **exception** :
   `desktop/php/*.php` (pages) sont en **tabulations + CRLF** — respecter l'existant fichier par fichier.
+  ⚠️ **Les fichiers Python sont en LF**, seule exception au CRLF du dépôt : `verif-plugin.py` ne les
+  analyse pas, `.gitattributes` n'impose rien sur `*.py`, et le bot prettier ne les reformate pas.
 - Logs via `log::add('jeeroborock', 'debug'|'info'|'warning'|'error', $msg)` ; **jamais** de secret exposé.
 - **Robustesse cron** : un équipement en erreur ne doit **pas** interrompre la boucle → `try/catch` **par
   équipement**. Respecter tout **rate-limit / quota** d'une API tierce (backoff sur 429, cooldown).
@@ -329,7 +354,8 @@ traduction : la clé EST le texte français). Langues cibles usuelles : **`en_US
     robot, framing, push, catalogue de commandes, cartes), `jeeroborock-modele-equipement.md` (mapping
     Jeedom), `jeeroborock-implementations-reference.md` (table « incertitude → implémentation de
     référence » : `python-roborock`, Home Assistant, ioBroker).
-  - Génériques Jeedom : `jeedom-widgets-commandes.md`, `jeedom-panel-page-menu.md`.
+  - Génériques Jeedom : `jeedom-widgets-commandes.md`, `jeedom-panel-page-menu.md`,
+    `jeedom-config-plugin-defauts.md`, `jeedom-dependances-et-demon.md`.
 - **`.memory/external/doc/jeedom/INDEX.md`** — index de la doc développeur Jeedom (pour un `WebFetch`
   ciblé sans re-parcourir le sommaire).
 

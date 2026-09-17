@@ -14,3 +14,4 @@ docs/.sass-cache/
 .vscode
 __pycache__/
 *.pyc
+resources/python_venv/
