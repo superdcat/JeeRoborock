@@ -1,0 +1,6 @@
+# Volontairement MINIMAL : pas de `* text=auto` ici. Ce dépôt travaille en CRLF dans le
+# répertoire de travail (core.autocrlf=true côté clone) et une normalisation globale
+# réécrirait en masse les fichiers du plugin.
+# Les hooks shell, eux, doivent impérativement rester en LF : en CRLF, /bin/sh échoue sur
+# le shebang et le hook ne s'exécute pas — sans le moindre message.
+.githooks/** text eol=lf

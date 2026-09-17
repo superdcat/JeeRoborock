@@ -1,0 +1,17 @@
+#!/bin/sh
+# Hook git de ce dépôt — activé par : git config core.hooksPath .githooks
+# (à refaire dans chaque clone : la config git n'est pas versionnée).
+#
+# Rôle unique : incrémenter pluginVersion dans plugin_info/info.json quand le commit
+# touche du code livré au plugin, sinon Jeedom (Market GitHub) ne propose aucune mise à
+# jour et l'installation garde l'ancien code. Toute la logique est dans le script Python.
+#
+# ⚠️ Ce fichier doit rester en fins de ligne LF (cf. .gitattributes) : en CRLF, /bin/sh
+# refuse le shebang ("bad interpreter") et le hook est silencieusement inopérant.
+for INTERPRETEUR in python3 python py; do
+  if command -v "$INTERPRETEUR" >/dev/null 2>&1; then
+    exec "$INTERPRETEUR" .claude/scripts/bump-version.py
+  fi
+done
+echo "template/version : aucun interpréteur Python trouvé, pluginVersion NON incrémentée" >&2
+exit 0
