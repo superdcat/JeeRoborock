@@ -1,0 +1,16 @@
+{
+    "plugins/jeeroborock/plugin_info/configuration.php": {
+        "Compte Roborock": "Cuenta Roborock",
+        "E-mail du compte Roborock": "Correo electrónico de la cuenta Roborock",
+        "Adresse e-mail du compte Roborock. Le mot de passe n'est jamais demandé : l'authentification se fait par un code reçu par e-mail.": "Dirección de correo electrónico de la cuenta Roborock. Nunca se solicita la contraseña: la autenticación se realiza mediante un código recibido por correo electrónico.",
+        "Canal local avec le démon": "Canal local con el demonio",
+        "Port du canal local": "Puerto del canal local",
+        "Port TCP utilisé sur 127.0.0.1 pour dialoguer avec le démon. À ne changer qu'en cas de conflit avec un autre service.": "Puerto TCP utilizado en 127.0.0.1 para comunicarse con el demonio. Cambiarlo solo en caso de conflicto con otro servicio.",
+        "Le niveau de journalisation se règle dans le bloc Log de cette page.": "El nivel de registro se configura en el bloque Log de esta página."
+    },
+    "plugins/jeeroborock/core/class/jeeroborock.class.php": {
+        "L'adresse e-mail du compte Roborock est invalide.": "La dirección de correo electrónico de la cuenta Roborock no es válida.",
+        "Le port du canal local doit être un nombre entier compris entre 1024 et 65535.": "El puerto del canal local debe ser un número entero comprendido entre 1024 y 65535.",
+        "Le port du canal local %s est déjà utilisé sur cette machine, veuillez en choisir un autre.": "El puerto del canal local %s ya está en uso en esta máquina, elija otro."
+    }
+}

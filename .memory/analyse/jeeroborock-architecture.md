@@ -69,6 +69,14 @@ POST HTTP vers un callback). Le fire-and-forget **ne suffit pas** : plusieurs op
   (aiohttp, **déjà** dépendance transitive de `python-roborock` — aucune dépendance supplémentaire),
   protégé par l'**apikey** du plugin. Le PHP appelle en cURL avec un timeout court (≈ 10 s, plus long
   pour la découverte). Réponse JSON `{success, data|error}`.
+  - **Port tranché en UC01 (2026-09-17) : `61350`**, clé de configuration plugin **`portDemonHttp`**,
+    valeur par défaut servie par `core/config/jeeroborock.config.ini` (section `[jeeroborock]`) et
+    doublée par la constante `jeeroborock::PORT_DEMON_HTTP_DEFAUT`. Choisi **au-dessus de la plage
+    éphémère Linux** (`net.ipv4.ip_local_port_range = 32768 60999`, sinon le `bind` du démon échoue
+    aléatoirement contre une connexion sortante), hors plage IANA attribuée (rien au-dessus de 49151) et
+    hors du cluster 55000-55100 des démons Jeedom issus du squelette (`_socket_port = 55009`).
+    ⚠️ **Lire le port via `jeeroborock::getPortDemonHttp()`**, jamais via `config::byKey` directement :
+    cette méthode porte la normalisation (défaut si absent, non numérique ou hors 1024-65535).
 - **Démon → Jeedom (asynchrone)** : `jeedom_com` POST vers le callback `core/php/jee<Id>.php`, pour les
   **push** (états dps MQTT, passage online/offline, fin de tâche) et les événements longs.
 
@@ -108,15 +116,18 @@ aucun secret dans les réponses (ni `local_key`, ni `rriot`, ni token), et `.hta
   dans la lib ;
 - Home Assistant ne propose **que** le code e-mail.
 
-→ **Décision** : proposer le mot de passe en option « si votre compte en a un », mais construire tout le
-MVP sur le code e-mail. Le champ mot de passe reste dans `$_encryptConfigKey`.
+→ **Décision** (révisée au cadrage, appliquée en UC01 le 2026-09-17) : **aucun champ mot de passe n'est
+proposé**, ni au MVP ni ensuite. Le code e-mail est le **seul** flux d'authentification supporté.
+`$_encryptConfigKey` ne contient que `userData`. La version initiale de cette décision prévoyait un mot de
+passe « en option si votre compte en a un » ; elle a été abandonnée et contredisait `CLAUDE.md` ainsi que
+l'AC1 de `.memory/specs/MVP/01-config-plugin.md`.
 
 **Stockage** :
 
 | Donnée | Où | Chiffrement |
 |---|---|---|
 | `email` | config plugin | non |
-| `password` (optionnel) | config plugin | **oui** (`$_encryptConfigKey`) |
+| ~~`password`~~ | **aucun champ mot de passe** (décision de cadrage) | — |
 | `userData` (JSON complet, dont `rriot`) | config plugin | **oui** (`$_encryptConfigKey`) |
 | `baseUrl` (ex. `https://euiot.roborock.com`) | config plugin | non |
 | `homedata` / capacités / cache carte | `cache::set` (TTL) ou fichier du démon | volatile |

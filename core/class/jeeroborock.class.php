@@ -27,13 +27,84 @@ class jeeroborock extends eqLogic {
   public static $_widgetPossibility = array();
   */
 
-  /*
-  * Permet de crypter/décrypter automatiquement des champs de configuration du plugin
-  * Exemple : "param1" & "param2" seront cryptés mais pas "param3"
-  public static $_encryptConfigKey = array('param1', 'param2');
-  */
+  // Valeur par défaut du port du canal HTTP local avec le démon.
+  // A garder synchronisée avec core/config/jeeroborock.config.ini.
+  const PORT_DEMON_HTTP_DEFAUT = 61350;
+
+  // Attention : userData contient le jeton de session et les identifiants dérivés rriot.
+  // Ne jamais définir preConfig_userData / postConfig_userData : une exception levée depuis
+  // une frame qui reçoit ce paramètre exposerait le secret via displayException() (trace complète
+  // des arguments de frame en mode debug).
+  public static $_encryptConfigKey = array('userData');
 
   /*     * ***********************Methode static*************************** */
+
+  // Adresse e-mail du compte Roborock. Chaîne vide autorisée (état initial). La casse n'est pas
+  // normalisée : la valeur entre dans le header_clientid du démon.
+  public static function preConfig_email($_value) {
+    $_value = trim($_value);
+    if ($_value == '') {
+      return $_value;
+    }
+    if (!filter_var($_value, FILTER_VALIDATE_EMAIL)) {
+      throw new Exception(__('L\'adresse e-mail du compte Roborock est invalide.', __FILE__));
+    }
+    return $_value;
+  }
+
+  // Port du canal HTTP local avec le démon. Normalisé à l'écriture, valide la plage, et
+  // signale un éventuel conflit de port déjà occupé sur la machine (non bloquant).
+  public static function preConfig_portDemonHttp($_value) {
+    $_value = trim($_value);
+    if ($_value == '') {
+      return (string) self::PORT_DEMON_HTTP_DEFAUT;
+    }
+    if (!ctype_digit($_value)) {
+      throw new Exception(__('Le port du canal local doit être un nombre entier compris entre 1024 et 65535.', __FILE__));
+    }
+    $port = intval($_value);
+    if ($port < 1024 || $port > 65535) {
+      throw new Exception(__('Le port du canal local doit être un nombre entier compris entre 1024 et 65535.', __FILE__));
+    }
+    if ($port != self::getPortDemonHttp()) {
+      self::signalerPortOccupe($port);
+    }
+    return (string) $port;
+  }
+
+  // Unique point de lecture du port dans tout le plugin. Retombe sur la valeur par défaut si
+  // la configuration est absente, non numérique ou hors plage.
+  public static function getPortDemonHttp() {
+    $port = intval(config::byKey('portDemonHttp', 'jeeroborock', self::PORT_DEMON_HTTP_DEFAUT));
+    if ($port < 1024 || $port > 65535) {
+      return self::PORT_DEMON_HTTP_DEFAUT;
+    }
+    return $port;
+  }
+
+  // Sonde non intrusive : détecte un service déjà en écoute sur 127.0.0.1:$_port.
+  // Confort, pas garantie (cf. risques R4 de la spec technique UC01).
+  public static function estPortLocalOccupe($_port) {
+    if (!function_exists('fsockopen')) {
+      log::add('jeeroborock', 'debug', 'fsockopen indisponible (disable_functions), sonde de port ignoree');
+      return false;
+    }
+    $connexion = @fsockopen('127.0.0.1', intval($_port), $errno, $errstr, 0.3);
+    if ($connexion) {
+      fclose($connexion);
+      return true;
+    }
+    return false;
+  }
+
+  // Notifie un conflit de port (message centre de messages + log), sans bloquer l'enregistrement.
+  private static function signalerPortOccupe($_port) {
+    message::removeAll('jeeroborock', 'port_occupe');
+    if (self::estPortLocalOccupe($_port)) {
+      log::add('jeeroborock', 'warning', 'Port du canal local ' . $_port . ' deja occupe sur cette machine');
+      message::add('jeeroborock', sprintf(__('Le port du canal local %s est déjà utilisé sur cette machine, veuillez en choisir un autre.', __FILE__), $_port), '', 'port_occupe');
+    }
+  }
 
   /*
   * Fonction exécutée automatiquement toutes les minutes par Jeedom

@@ -82,7 +82,13 @@ Disposition Jeedom fixe (type MVC), nommée d'après l'id `jeeroborock`.
 - **`desktop/js/jeeroborock.js`** — front-end (lignes de commandes, tri, helpers `jeedom.*`).
 - **`desktop/modal/modal.jeeroborock.php`** — modale(s) de la page de config (dont celle du code e-mail).
 - **`plugin_info/configuration.php`** — formulaire de la page de config **plugin** (`gotoPluginConf`).
-  Champs liés en `class="configKey" data-l1key="<clé>"`.
+  Champs liés en `class="configKey" data-l1key="<clé>"`. Protégé par `isConnect('admin')` **dans le
+  fichier lui-même** : le core n'applique aucun contrôle admin sur cette inclusion.
+- **`core/config/jeeroborock.config.ini`** — **valeurs par défaut** des clés de config plugin (section
+  `[jeeroborock]`). ⚠️ C'est le **seul** mécanisme qui pré-remplit réellement un champ : un `value=` en
+  dur dans le HTML est écrasé au chargement par `setJeeValues`. Piège associé : enregistrer une valeur
+  **égale au défaut** supprime la ligne en base **et court-circuite `preConfig_<clé>`**. Détail et autres
+  pièges du cycle de vie d'une config plugin : `.memory/analyse/jeedom-config-plugin-defauts.md`.
 
 > ⚠️ **Accès restreint à `plugin_info/configuration.php`** — Claude Code **ne peut ni lire ni éditer**
 > ce fichier via les outils Read/Edit/Write (refusé par les permissions de session), et même un
@@ -133,7 +139,11 @@ Disposition Jeedom fixe (type MVC), nommée d'après l'id `jeeroborock`.
 
 - **Config plugin** (`config::save/byKey(..., 'jeeroborock')`) : e-mail du compte Roborock, **`UserData`**
   obtenu après authentification (jeton + identifiants dérivés `rriot`), `base_url` régionale, port du
-  canal HTTP local du démon, niveau de log. Les clés **sensibles** — au minimum le `UserData` — sont
+  canal HTTP local du démon. Clés posées en UC01 : **`email`**, **`portDemonHttp`** (défaut **61350**, à
+  lire **uniquement** via `jeeroborock::getPortDemonHttp()`) et **`userData`**. ⚠️ **Pas de clé de niveau
+  de log propre au plugin** : le sélecteur « Niveau log » est fourni par le core sur cette même page et
+  `log::add()` ne consulte que la clé cœur `log::level::jeeroborock`. Les clés **sensibles** — au
+  minimum le `UserData` — sont
   déclarées dans `public static $_encryptConfigKey = array(...);` sur la classe principale → le core les
   **chiffre/déchiffre automatiquement**. Les hooks `preConfig_<clé>($value)` permettent de valider avant
   enregistrement (⚠️ `preConfig_<clé>` est un **nom de méthode fixe** — pas d'itération dynamique).
