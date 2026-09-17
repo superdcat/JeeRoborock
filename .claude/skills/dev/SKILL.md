@@ -36,9 +36,9 @@ t'arrêtant dès que tu as la réponse :
 **signale l'écart** (ne tranche pas en silence) et remonte-le dans ton rapport.
 
 Rappels critiques (fatals **invisibles à `php -l`**) :
-- **Autoload 1 classe ↔ 1 fichier** : jamais d'appel direct à une classe annexe (ex. `templateApi::`) depuis
+- **Autoload 1 classe ↔ 1 fichier** : jamais d'appel direct à une classe annexe (ex. `jeeroborockDaemon::`) depuis
   un point d'entrée externe (`*.ajax.php`, hooks cron, `desktop/php/*.php`, `install.php`). Router via la
-  classe principale `template`/`templateCmd` (dont `template.class.php` charge aussi les classes annexes
+  classe principale `jeeroborock`/`jeeroborockCmd` (dont `jeeroborock.class.php` charge aussi les classes annexes
   qu'il contient).
 - **Centraliser les accès externes** : tout appel HTTP par la brique API unique du plugin (aucun cURL
   épars) ; toute commande sortante d'un démon par le pont démon (aucun socket/MQTT épars).
@@ -73,7 +73,7 @@ surtout pour un appel cloud / une commande matérielle → « à valider en rece
    UI en **français** (`{{...}}` / `__()`) — **ne PAS toucher aux `core/i18n/*.json`** (traduction déléguée
    à l'orchestrateur).
 3. **Vérifier** : `php -l`/contrôle structurel + **check autoload** (toute classe référencée depuis un
-   point d'entrée externe a son fichier, ou transite par `template`/`templateCmd`) + dérouler la checklist
+   point d'entrée externe a son fichier, ou transite par `jeeroborock`/`jeeroborockCmd`) + dérouler la checklist
    (ce qui exige un Jeedom réel → « à valider en recette »).
 4. **Auto-revue** : passer la checklist qualité ci-dessous ; corriger ce qui est rapide.
 5. **Itérer** : reprendre en 2 tant qu'un critère n'est pas couvert **ou** qu'un point de la checklist
@@ -90,7 +90,7 @@ surtout pour un appel cloud / une commande matérielle → « à valider en rece
       justifié et signalé.
 - [ ] Tout appel externe via la brique API/le pont démon ; **autoload** OK (pas d'appel direct à une
       classe annexe depuis un point d'entrée externe).
-- [ ] **Fidélité chemin d'appel** : le flux suit la spec (ex. AJAX → méthode de `template`, pas
+- [ ] **Fidélité chemin d'appel** : le flux suit la spec (ex. AJAX → méthode de `jeeroborock`, pas
       directement la classe annexe).
 - [ ] Aucun **secret/token en clair** (identifiants, tokens, codes, PIN) — ni dans les logs, le DOM, les
       réponses AJAX, les commentaires.
@@ -98,7 +98,7 @@ surtout pour un appel cloud / une commande matérielle → « à valider en rece
 - [ ] Si `plugin_info/configuration.*` touché : `.txt` édité **et** `.php` re-synchronisé par `cp`.
 - [ ] **Idempotence** : re-synchro/re-save sans doublon (clé `logicalId`), personnalisations préservées ;
       création de commandes **conditionnelle** à la présence du champ/de la capacité.
-- [ ] Erreurs **non silencieuses** : `log::add('template','error',…)` + remontée propre ; jamais de `catch`
+- [ ] Erreurs **non silencieuses** : `log::add('jeeroborock','error',…)` + remontée propre ; jamais de `catch`
       vide.
 - [ ] **Robustesse cron** : un équipement en erreur n'interrompt pas la boucle (try/catch par équipement).
 - [ ] **Rate-limit / quotas** d'une API tierce respectés (backoff sur 429, cooldown, pas de rafale).

@@ -67,9 +67,9 @@ aveuglément.
 ## Règles critiques (fatales au runtime, invisibles à `php -l`)
 
 - **Autoload 1 classe ↔ 1 fichier** : jamais d'appel direct à une classe annexe (ex. un client API
-  `templateApi::` ou une exception `templateException`) depuis un point d'entrée externe
+  `jeeroborockDaemon::` ou une exception `jeeroborockException`) depuis un point d'entrée externe
   (`core/ajax/*.ajax.php`, hooks cron, `desktop/php/*.php`, `install.php`) — router via
-  `template`/`templateCmd`.
+  `jeeroborock`/`jeeroborockCmd`.
 - **Centraliser les accès externes** : tout appel HTTP par la brique API unique du plugin (aucun cURL
   épars) ; toute commande sortante d'un démon par le pont démon (aucun socket/MQTT épars).
 - **`plugin_info/configuration.php` est inaccessible en écriture** (permissions de session) : édite

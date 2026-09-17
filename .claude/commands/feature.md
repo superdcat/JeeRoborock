@@ -288,7 +288,7 @@ suivantes, une erreur qu'on y laisse est recopiée.
 
 Le code FR est figé et validé. Invoque le sous-agent `translator` sur les fichiers créés/modifiés. Il doit :
 - extraire toutes les clés UI françaises (`{{...}}` / `__()`) introduites/modifiées ;
-- remplir/mettre à jour `core/i18n/{en_US,de_DE,es_ES}.json` sous `plugins/template/<fichier>` ;
+- remplir/mettre à jour `core/i18n/{en_US,de_DE,es_ES}.json` sous `plugins/jeeroborock/<fichier>` ;
 - garantir la **couverture complète des langues cibles**, signaler toute **clé orpheline** ;
 - **valider lui-même que les JSON parsent** avant de rendre la main (il dispose de `Bash` et lance la
   validation Python ; il ne rend `pass` que si les fichiers parsent). **Tu n'as donc PAS à re-valider les

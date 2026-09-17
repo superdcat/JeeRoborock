@@ -23,9 +23,9 @@ Tu analyses 6 catégories de qualité de code :
      Toute classe référencée depuis un **point d'entrée externe** (`core/ajax/*.ajax.php`, hooks
      cron, `desktop/php/*.php`, `install.php`) — via `Classe::`, `new Classe`, `catch (Classe …)` —
      doit donc soit avoir son propre fichier `<Classe>.class.php`, soit voir son chargement assuré
-     en passant d'abord par la classe principale `template`/`templateCmd` (dont `template.class.php` charge du
-     même coup les classes annexes qu'il contient, ex. un client API `templateApi` ou une exception
-     `templateException`). Un appel **direct** à une telle classe annexe depuis un point d'entrée externe est
+     en passant d'abord par la classe principale `jeeroborock`/`jeeroborockCmd` (dont `jeeroborock.class.php` charge du
+     même coup les classes annexes qu'il contient, ex. un client API `jeeroborockDaemon` ou une exception
+     `jeeroborockException`). Un appel **direct** à une telle classe annexe depuis un point d'entrée externe est
      un **`blocker`** : il plante en `Fatal error: Class not found` au runtime (invisible à `php -l`).
 2. **Clarté** : nommage des variables, fonctions, composants explicites et révélateurs d'intention
 3. **Complexité** : longueur des fonctions, profondeur d'imbrication, nombre de paramètres
@@ -68,11 +68,36 @@ pas à te les rappeler à chaque invocation.
 
 <!-- init-plugin:invariants -->
 
-*(Vide dans le template : cette section est renseignée par `/init-plugin` à partir des arbitrages de
-l'interview de cadrage, puis enrichie à chaque cycle `/feature` quand l'utilisateur tranche un compromis.
-**Un point listé ici a été arbitré et documenté : le reporter serait un faux positif.** Y atterrissent
-typiquement : un comportement natif du core assumé malgré une règle générale du projet, une constante
-tierce délibérément embarquée dans le code, une limite fonctionnelle acceptée.)*
+Ces compromis ont ete tranches au cadrage (`/init-plugin`) et sont documentes dans
+`.memory/analyse/jeeroborock-architecture.md`. **Un point liste ici a ete arbitre : le reporter serait un
+faux positif.**
+
+- **Aucun appel au cloud Roborock en PHP.** Le PHP ne parle qu'au demon Python ; tout le contrat externe
+  (signature Hawk, login v4 signe, protocole binaire chiffre sur MQTT) vit dans `python-roborock`.
+  *Raison* : dupliquer en PHP un contrat proprietaire non documente, qui change sans preavis, couterait
+  plus cher a maintenir que le demon lui-meme. Ne reclame pas de client HTTP PHP vers le cloud.
+  **Reste actionnable** : un chemin PHP qui contournerait le pont pour joindre le cloud directement.
+- **Version de `python-roborock` epinglee sans plafond.** `packages.json` interdit les operateurs `<` et
+  `>` (redirection shell dans `installPackage`), donc la seule forme valide est une version exacte —
+  actuellement `7.8.0`. *Raison* : contrainte du format Jeedom, pas un oubli. Le garde-fou retenu est un
+  log de la version detectee au demarrage du demon, avec alerte si la majeure depasse celle testee.
+  **Reste actionnable** : l'absence de ce garde-fou, ou une version ecrite dans la CLE plutot que dans la
+  valeur.
+- **La librairie tente toujours une connexion TCP locale au robot**, bien que le plugin soit specifie
+  « cloud uniquement ». *Raison* : `python-roborock` 7.8.0 n'expose aucun commutateur pour la desactiver.
+  Traite comme un accelerateur transparent, isole dans l'UC post-MVP `29-transport-local`. Ne le signale
+  pas comme une incoherence de perimetre.
+- **Commandes creees conditionnellement d'apres les capacites detectees**, jamais d'apres une table
+  codee en dur par modele. *Raison* : un seul robot est testable (Qrevo Curv, `roborock.vacuum.a135`) ;
+  une table par modele serait une affirmation invérifiable. **Reste actionnable** : une liste de valeurs
+  (puissances d'aspiration, debits d'eau) ecrite en dur cote PHP au lieu d'etre remontee par le demon.
+- **Les libelles d'etat et d'erreur viennent du demon** (tables de la librairie), pas de constantes PHP.
+  *Raison* : ils evoluent avec le firmware et les modeles. Un libelle PHP en dur est, lui, un finding.
+- **Les mentions « A confirmer » des fichiers `.memory/analyse/jeeroborock-*.md` ne sont pas des
+  findings.** *Raison* : elles marquent ce qu'un seul robot de test ne permet pas de verifier, et se
+  levent en recette, pas en review.
+- **`os.min` = 12 (Debian 11 exclu).** *Raison* : `python-roborock` exige Python >= 3.11. Ce n'est pas une
+  restriction gratuite de compatibilite.
 
 ## Connaissance projet — consultation à la demande
 

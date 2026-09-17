@@ -1,81 +1,45 @@
 {
-	"id": "template",
-	"name": "Template",
-	"pluginVersion": "0.1",
-	"specialAttributes": {
-		"object": {
-			"toto": {
-				"name": {
-					"fr_FR": "Plop je suis un attribut spécial"
-				},
-				"type": "input"
-			},
-			"toto2": {
-				"name": {
-					"fr_FR": "Plop je suis un attribut spécial number"
-				},
-				"type": "number"
-			}
-		},
-		"user": {
-			"toto": {
-				"name": {
-					"fr_FR": "Plop je suis un attribut spécial"
-				},
-				"type": "select",
-				"values": [
-					{
-						"value": "1",
-						"name": "valeur 1"
-					},
-					{
-						"value": "plop",
-						"name": "valeur plop"
-					}
-				]
-			}
-		}
-	},
-	"description": {
-		"fr_FR": "Template servant de base à la création de plugins pour Jeedom"
-	},
-	"licence": "AGPL",
-	"author": "Jeedom SAS",
-	"require": "4.2",
-	"os" : {
-		"min" : 10,
-		"max" : 12.99
-	},
-	"category": "programming",
-	"hasDependency": false,
-	"hasOwnDeamon": false,
-	"maxDependancyInstallTime": 0,
-	"changelog_beta": "https:\/\/doc.jeedom.com\/#language#\/plugins\/programming\/template\/beta\/changelog",
-	"changelog": "https:\/\/doc.jeedom.com\/#language#\/plugins\/programming\/template\/changelog",
-	"documentation_beta": "https:\/\/doc.jeedom.com\/#language#\/plugins\/programming\/template\/beta",
-	"documentation": "https:\/\/doc.jeedom.com\/#language#\/plugins\/programming\/template",
-	"link": {
-		"forum": "Lien vers le forum",
-		"video": "Lien vers une video"
-	},
-	"language": [
-		"fr_FR",
-		"en_US",
-		"es_ES",
-		"de_DE",
-		"ru_RU",
-		"id_ID",
-		"it_IT",
-		"ja_JP",
-		"pt_PT"
-	],
-	"compatibility": [
-		"smart",
-		"luna",
-		"atlas",
-		"rpi",
-		"docker",
-		"diy",
-		"mobile"
-	]
+    "id": "jeeroborock",
+    "name": "JeeRoborock",
+    "pluginVersion": "0.1",
+    "description": {
+        "fr_FR": "Pilotez vos aspirateurs robots Roborock depuis Jeedom : etats en temps reel, commandes de nettoyage et execution des routines definies dans l'application mobile, via le cloud Roborock.",
+        "en_US": "Control your Roborock robot vacuums from Jeedom: real-time status, cleaning commands and execution of the routines defined in the mobile application, through the Roborock cloud.",
+        "de_DE": "Steuern Sie Ihre Roborock-Saugroboter von Jeedom aus: Status in Echtzeit, Reinigungsbefehle und Ausfuehrung der in der mobilen App definierten Routinen ueber die Roborock-Cloud.",
+        "es_ES": "Controla tus aspiradoras robot Roborock desde Jeedom: estados en tiempo real, comandos de limpieza y ejecucion de las rutinas definidas en la aplicacion movil, a traves de la nube Roborock."
+    },
+    "licence": "AGPL",
+    "author": "edecastro-mass",
+    "require": "4.2",
+    "os": {
+        "min": 12,
+        "max": 13.99
+    },
+    "category": "devicecommunication",
+    "hasDependency": true,
+    "hasOwnDeamon": true,
+    "maxDependancyInstallTime": 15,
+    "changelog_beta": "https://doc.jeedom.com/#language#/plugins/devicecommunication/jeeroborock/beta/changelog",
+    "changelog": "https://doc.jeedom.com/#language#/plugins/devicecommunication/jeeroborock/changelog",
+    "documentation_beta": "https://doc.jeedom.com/#language#/plugins/devicecommunication/jeeroborock/beta",
+    "documentation": "https://doc.jeedom.com/#language#/plugins/devicecommunication/jeeroborock",
+    "link": {
+        "forum": "",
+        "video": ""
+    },
+    "language": [
+        "fr_FR",
+        "en_US",
+        "de_DE",
+        "es_ES"
+    ],
+    "compatibility": [
+        "smart",
+        "luna",
+        "atlas",
+        "rpi",
+        "docker",
+        "diy",
+        "mobile"
+    ]
 }

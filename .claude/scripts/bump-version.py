@@ -4,7 +4,7 @@
 
 Pourquoi ce script existe : le plugin est déployé via le **Market GitHub** de Jeedom.
 Tant que `pluginVersion` ne change pas, Jeedom peut ne proposer AUCUNE mise à jour et ne
-rejoue pas `template_update()` : le code poussé n'atteint jamais l'installation, et
+rejoue pas `jeeroborock_update()` : le code poussé n'atteint jamais l'installation, et
 l'utilisateur continue de voir l'ancienne page de configuration.
 
 Règles :
@@ -35,7 +35,7 @@ for flux in (sys.stdout, sys.stderr):
     except Exception:
         pass
 
-PREFIXE = 'template/version :'
+PREFIXE = 'jeeroborock/version :'
 INFO = 'plugin_info/info.json'
 # Dossiers dont une modification justifie une nouvelle version côté Jeedom. `resources/`
 # y figure par avance : le démon Python n'arrive qu'au domaine post-MVP, mais il sera

@@ -41,11 +41,36 @@ pas à te les rappeler à chaque invocation.
 
 <!-- init-plugin:invariants -->
 
-*(Vide dans le template : cette section est renseignée par `/init-plugin` à partir des arbitrages de
-l'interview de cadrage, puis enrichie à chaque cycle `/feature` quand l'utilisateur tranche un compromis
-de sécurité. **Un point listé ici a été arbitré et documenté : le reporter serait un faux positif.** Y
-atterrissent typiquement : un résidu de secret assumé parce qu'il est le comportement natif du core, une
-constante tierce délibérément embarquée dans le code, un contournement refusé et sa raison.)*
+Ces compromis ont ete tranches au cadrage (`/init-plugin`) et sont documentes dans
+`.memory/analyse/jeeroborock-architecture.md`. **Un point liste ici a ete arbitre : le reporter serait un
+faux positif.**
+
+- **La re-authentification n'est pas automatisable, et c'est voulu.** Le lien au compte Roborock passe par
+  un code a usage unique recu par e-mail ; le mot de passe de compte n'est **pas** propose ni stocke.
+  *Raison* : `pass_login` est le chemin le moins supporte en amont (non utilise par Home Assistant), et
+  les quotas de login sont durs (20/jour, partages avec l'application mobile). Le comportement attendu est
+  d'afficher « re-authentification requise » et de **s'arreter la**. Ne reclame ni refresh automatique, ni
+  retry, ni stockage du mot de passe. **Reste actionnable** : une boucle de re-tentative sur le login, ou
+  un chemin qui relance `homedata` en rafale.
+- **Le demon expose un serveur HTTP sur `127.0.0.1`, protege par l'apikey du plugin.** *Raison* : quatre
+  operations de la page de configuration exigent une reponse synchrone (envoi du code, validation,
+  decouverte, listing des routines), ce que le `jeedom_socket` du squelette, fire-and-forget, ne permet
+  pas. L'existence de ce serveur n'est donc pas un finding. **Reste actionnable, et prioritaire** : un
+  bind ailleurs que sur la loopback, une apikey absente ou comparee sans fonction a temps constant, un
+  chemin qui journalise l'apikey ou l'inscrit dans une URL.
+- **Les secrets du robot ne quittent jamais le demon.** `local_key`, identifiants derives `rriot` et
+  jetons de session restent cote Python ; cote PHP, seul le `UserData` est persiste, chiffre via
+  `$_encryptConfigKey`. *Raison* : reduire la surface au strict minimum et eviter qu'une trace
+  d'exception PHP expose un secret passe en parametre. **Reste actionnable** : tout chemin faisant
+  transiter une de ces valeurs vers le DOM, une reponse AJAX, un log ou la configuration d'un eqLogic.
+- **La dependance tierce ne peut pas etre plafonnee** dans `packages.json` (operateurs interdits). Le
+  risque de rupture d'API entre majeures est assume et couvert par un log de version au demarrage.
+  Inutile de le re-signaler comme dependance non contrainte.
+- **La librairie tente une connexion TCP locale au robot** meme en mode cloud (aucun commutateur en
+  7.8.0). Comportement amont assume, isole dans l'UC post-MVP `29-transport-local`.
+- **Contournement explicitement refuse** : la verification TLS ne doit **jamais** etre desactivee, ni cote
+  PHP, ni dans le demon, quel que soit le probleme de certificat rencontre avec les serveurs regionaux
+  Roborock. Si tu en vois une trace, c'est un finding **majeur**, pas un arbitrage.
 
 ## Points durs d'un plugin Jeedom — vérifie-les, ne les re-théorise pas
 

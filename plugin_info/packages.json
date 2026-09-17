@@ -8,13 +8,13 @@
     "requests" : {"reinstall" : true}
   },
   "npm": {
-    "plugins/template/ressources/demond"  : {}
+    "plugins/jeeroborock/ressources/demond"  : {}
   },
   "composer": {
-       "plugins/template"  : {}
+       "plugins/jeeroborock"  : {}
   },
   "yarn": {
-    "plugins/template/ressources/demond"  : {}
+    "plugins/jeeroborock/ressources/demond"  : {}
   },
   "plugin": {
   },

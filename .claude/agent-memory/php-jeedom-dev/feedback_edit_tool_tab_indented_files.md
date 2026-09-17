@@ -5,7 +5,7 @@ metadata:
   type: feedback
 ---
 
-Jeedom's `desktop/php/*.php` templates (e.g. `desktop/php/template.php`) are indented with **tabs**, not
+Jeedom's `desktop/php/*.php` templates (e.g. `desktop/php/jeeroborock.php`) are indented with **tabs**, not
 spaces (confirmed via `sed -n '<range>p' file | cat -A` showing `^I` markers), and use **CRLF** line
 endings. `core/class/*.class.php`, by contrast, uses 2-space indentation. When constructing a multi-line
 `old_string`/`new_string` for the `Edit` tool by re-typing content seen in a `Read` result, the retyped

@@ -18,7 +18,7 @@
 /* * ***************************Includes********************************* */
 require_once __DIR__  . '/../../../../core/php/core.inc.php';
 
-class template extends eqLogic {
+class jeeroborock extends eqLogic {
   /*     * *************************Attributs****************************** */
 
   /*
@@ -150,7 +150,7 @@ class template extends eqLogic {
   /*     * **********************Getteur Setteur*************************** */
 }
 
-class templateCmd extends cmd {
+class jeeroborockCmd extends cmd {
   /*     * *************************Attributs****************************** */
 
   /*

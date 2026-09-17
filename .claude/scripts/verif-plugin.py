@@ -46,9 +46,9 @@ CONFIG_TXT = 'plugin_info/configuration.txt'
 def _id_plugin():
     try:
         with io.open(os.path.join(RACINE, 'plugin_info/info.json'), encoding='utf-8') as f:
-            return json.load(f).get('id') or 'template'
+            return json.load(f).get('id') or 'jeeroborock'
     except Exception:
-        return 'template'
+        return 'jeeroborock'
 
 
 ID = _id_plugin()

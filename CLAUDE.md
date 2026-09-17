@@ -8,71 +8,81 @@ Ce fichier guide Claude Code (claude.ai/code) lorsqu'il travaille sur ce dépôt
 
 ## Présentation
 
-Ce dépôt est un **template de plugin Jeedom** : une base réutilisable pour créer n'importe quel plugin
-Jeedom. L'id du plugin est **`template`** (classes `template` / `templateCmd`) ; c'est un **placeholder à
-renommer** au début d'un vrai projet.
+**JeeRoborock** (id **`jeeroborock`**, classes `jeeroborock` / `jeeroborockCmd`) pilote les **aspirateurs
+robots Roborock** depuis Jeedom, en passant par le **cloud Roborock** : remontée des états, commandes de
+nettoyage, et surtout exécution des **routines (« usages »)** — les scénarios de nettoyage paramétrés par
+l'utilisateur dans l'application mobile Roborock.
 
-- **Renommage du squelette** : l'assistant remplace l'id `template` par l'id réel (contenu + noms de
-  fichiers + `info.json`). Deux implémentations équivalentes :
-  - `plugin_info/helperConfiguration.php` — assistant CLI officiel Jeedom (`php helperConfiguration.php`),
-    **interactif**, nécessite `php`.
-  - `plugin_info/helperConfiguration.py` — **port Python** non interactif (utile **sans `php` en local**) :
-    `python plugin_info/helperConfiguration.py --id <id> --name "<Nom>" --category <cat> --daemon <yes|no>
-    --dependency <yes|no>` (avec `--dry-run` pour prévisualiser). Il préserve la ligne `plugin.template`
-    (asset core), ne touche pas `configuration.php` ni `core/template/`, et supprime `resources/` si
-    `--daemon no`. **C'est ce port qu'utilise `/init-plugin`** pour renommer automatiquement.
-  Tant que le renommage n'a pas eu lieu, l'id reste `template` ; les références de cette doc utilisent
-  `template`/`templateCmd`.
-- Un plugin Jeedom **n'est pas autonome** : il s'installe sous `<jeedom>/plugins/<id>/`, et tout le PHP
-  dépend du core Jeedom, atteint via `require_once __DIR__ . '/../../../../core/php/core.inc.php';`.
-- **Pas de build local** ; la validation se fait en CI (voir « Workflows / CI »).
+- **Matériel de référence** : Roborock **Qrevo Curv** (`roborock.vacuum.a135`), protocole V1. C'est le
+  **seul** robot testable ; tout comportement non vérifiable dessus est marqué « À confirmer » dans les
+  specs et les analyses, et se lève en recette, pas en review.
+- **Le plugin ne parle jamais au cloud Roborock en PHP.** Le pilotage d'un robot V1 n'est pas du REST :
+  les commandes sont des RPC encapsulées dans un protocole binaire propriétaire, chiffré par le
+  `local_key` du robot et transporté sur un **MQTT persistant** qui pousse aussi des mises à jour non
+  sollicitées. Tout ce contrat vit dans un **démon Python** adossé à la librairie **`python-roborock`**
+  (celle de l'intégration Home Assistant). Le PHP ne parle **qu'au démon**.
+- **Authentification** : **code à usage unique reçu par e-mail**, uniquement. Le mot de passe de compte
+  n'est ni proposé ni stocké. Conséquence assumée : **la ré-authentification n'est pas automatisable** —
+  le plugin affiche « ré-authentification requise » et s'arrête là.
+- Un plugin Jeedom **n'est pas autonome** : il s'installe sous `<jeedom>/plugins/jeeroborock/`, et tout le
+  PHP dépend du core Jeedom, atteint via `require_once __DIR__ . '/../../../../core/php/core.inc.php';`.
+- **Pas de build local** ; la validation se fait en CI (voir « Workflows / CI ») et en recette sur une
+  Jeedom réelle.
 
-Ce dépôt embarque, en plus du code du template, un **outillage Claude Code** pour développer des features
-de manière structurée :
-- **`.claude/`** — commandes `/init-plugin` (cadrage), `/feature` (implémentation d'une UC),
-  `/auto-dev` (enchaînement autonome de plusieurs UC) et `/change` (revenir sur une décision de
-  `/auto-dev`) ; sous-agents (`jeedom-plugin-architect`, `jeedom-tech-planner`, `spec-writer`,
-  `php-jeedom-dev`, `auto-dev-runner`, `code-reviewer`, `security-reviewer`, `translator`) ; skills
-  `spec` et `dev` ; templates partagés (`.claude/templates/`) ; scripts (`.claude/scripts/`) ;
-  mémoire d'agent.
+> Le squelette a été renommé depuis le template Jeedom au bootstrap (`/init-plugin`, 2026-09-17).
+> `plugin_info/helperConfiguration.php` et `.py` restent présents mais **n'ont plus d'usage** : ne les
+> rejoue pas, ils reviendraient renommer un plugin déjà nommé.
+
+Ce dépôt embarque, en plus du code du plugin, un **outillage Claude Code** pour développer des features de
+manière structurée :
+- **`.claude/`** — commandes `/feature` (implémentation d'une UC), `/auto-dev` (enchaînement autonome de
+  plusieurs UC) et `/change` (revenir sur une décision de `/auto-dev`) ; sous-agents
+  (`jeedom-tech-planner`, `php-jeedom-dev`, `auto-dev-runner`, `code-reviewer`, `security-reviewer`,
+  `translator`, et `jeedom-plugin-architect` / `spec-writer` pour ajouter un domaine) ; skills `spec` et
+  `dev` ; templates partagés (`.claude/templates/`) ; scripts (`.claude/scripts/`) ; mémoire d'agent.
 - **`.memory/`** — connaissance interne **versionnée** : `specs/` (specs fonctionnelles/techniques des
-  features), `analyse/` (décisions/pièges Jeedom réutilisables), `external/doc/` (index de la doc externe).
+  features), `analyse/` (décisions et pièges réutilisables, Jeedom **et** Roborock), `external/doc/`
+  (index de la doc externe).
 
 ## Architecture
 
-Disposition Jeedom fixe (type MVC). Pièces principales, toutes nommées d'après l'id `template` :
+Disposition Jeedom fixe (type MVC), nommée d'après l'id `jeeroborock`.
 
-- **`core/class/template.class.php`** — le cœur du plugin. Deux classes (**1 classe ↔ 1 fichier**, cf.
+### Côté PHP
+
+- **`core/class/jeeroborock.class.php`** — le cœur du plugin. Deux classes (**1 classe ↔ 1 fichier**, cf.
   Conventions/Autoload) :
-  - `template extends eqLogic` — **une instance par équipement**. Hooks de cycle de vie
+  - `jeeroborock extends eqLogic` — **une instance par robot**. `logicalId` = le **`duid`** Roborock,
+    identifiant stable insensible au renommage dans l'application. Hooks de cycle de vie
     (`preSave`/`postSave`, `preInsert`/`postInsert`, `preRemove`/`postRemove`…), hooks cron statiques
-    (`cron()` chaque minute, `cron5`, `cron10`, `cron15`, `cron30`, `cronHourly`, `cronDaily`), hooks
-    `preConfig_<clé>`/`postConfig_<clé>` pour valider/réagir à la config plugin. `$_encryptConfigKey`
-    chiffre automatiquement les champs de config **plugin** sensibles.
-  - `templateCmd extends cmd` — commande (info ou action). `execute($_options)` exécute une action
-    (typiquement un `switch` sur `logicalId`).
-- **`core/ajax/template.ajax.php`** — endpoint AJAX **admin** de la page de configuration : inclut le core,
-  `isConnect('admin')`, `ajax::init()`, puis aiguille sur `init('action')` en branches
-  `if (init('action') == '...')`. Pour un endpoint **non-admin** (widget de dashboard, page-panneau), créer
-  un fichier AJAX **distinct** avec `isConnect()` + contrôle fin `hasRight('r')` par équipement.
-- **`core/php/template.inc.php`** — includes/constantes internes du plugin.
+    (`cron()`, `cron5`…) utilisés en **chien de garde** (démon vivant ? donnée périmée ?), hooks
+    `preConfig_<clé>`/`postConfig_<clé>`, et les hooks de démon `deamon_info`/`deamon_start`/`deamon_stop`.
+    `$_encryptConfigKey` chiffre les champs de config **plugin** sensibles.
+  - `jeeroborockCmd extends cmd` — commande info ou action. `execute($_options)` route l'action vers le
+    pont démon (typiquement un `switch` sur `logicalId`).
+- **`core/class/jeeroborockDaemon.class.php`** — ⚠️ **la brique unique d'accès au démon**, dans son
+  **propre** fichier parce qu'elle est appelée depuis des points d'entrée externes (AJAX, cron, callback)
+  et doit donc être trouvable par l'autoloader. **Tout** échange PHP → démon passe par là : aucun appel
+  HTTP épars ailleurs dans le code. `jeeroborockException` porte les erreurs typées du plugin.
+- **`core/ajax/jeeroborock.ajax.php`** — endpoint AJAX **admin** de la page de configuration : inclut le
+  core, `isConnect('admin')`, `ajax::init()`, puis aiguille sur `init('action')`. Pour un endpoint
+  **non-admin** (widget de dashboard, page-panneau — ex. la vue carte), créer un fichier AJAX **distinct**
+  avec `isConnect()` + contrôle fin `hasRight('r')` par équipement.
+- **`core/php/jeeroborock.inc.php`** — includes/constantes internes.
 - **`core/template/{dashboard,mobile}/cmd.<type>.<subType>.<nom>.html`** — widgets de commande
-  personnalisés (dashboard + mobile = **deux fichiers synchronisés**). Posés sur une commande via
-  `setTemplate('dashboard'|'mobile', 'template::<nom>')`. Détail : `.memory/analyse/jeedom-widgets-commandes.md`.
-- **`desktop/php/template.php`** — page de configuration admin (HTML), protégée par `isConnect('admin')`.
-  Liaison au modèle via `data-l1key`/`data-l2key`. i18n via `{{...}}`. Se termine en incluant le JS du
-  plugin puis le JS générique de page plugin **fourni par le core**
+  personnalisés (dashboard + mobile = **deux fichiers synchronisés**), posés via
+  `setTemplate('dashboard'|'mobile', 'jeeroborock::<nom>')`. Détail :
+  `.memory/analyse/jeedom-widgets-commandes.md`.
+- **`desktop/php/jeeroborock.php`** — page de configuration admin, protégée par `isConnect('admin')`.
+  Liaison au modèle via `data-l1key`/`data-l2key`, i18n via la double accolade. Se termine en incluant le
+  JS du plugin puis le JS générique de page plugin **fourni par le core**
   (`include_file('core', 'plugin.template', 'js')` → asset du core, **à ne pas renommer/modifier**).
   ⚠️ **Ces fichiers `desktop/php/*.php` sont indentés en tabulations + fins de ligne CRLF** (contrairement
   à `core/class/*.php` en 2 espaces) — cf. mémoire d'agent `feedback-edit-tool-tab-indented-files`.
-- **`desktop/js/template.js`** — front-end (lignes de commandes, tri, helpers `jeedom.*`).
-- **`desktop/modal/modal.template.php`** — modale(s) de la page de config.
-- **`desktop/php/<fichier>.php` déclaré par `info.json "display"`** — page-panneau optionnelle au **menu
-  d'accueil** Jeedom (usage utilisateur, `isConnect()` non-admin). Détail :
-  `.memory/analyse/jeedom-panel-page-menu.md`.
+- **`desktop/js/jeeroborock.js`** — front-end (lignes de commandes, tri, helpers `jeedom.*`).
+- **`desktop/modal/modal.jeeroborock.php`** — modale(s) de la page de config (dont celle du code e-mail).
 - **`plugin_info/configuration.php`** — formulaire de la page de config **plugin** (`gotoPluginConf`).
-  Champs liés en `class="configKey" data-l1key="<clé>"` (auto-load/save core via
-  `config::byKey/save(..., 'template')`).
+  Champs liés en `class="configKey" data-l1key="<clé>"`.
 
 > ⚠️ **Accès restreint à `plugin_info/configuration.php`** — Claude Code **ne peut ni lire ni éditer**
 > ce fichier via les outils Read/Edit/Write (refusé par les permissions de session), et même un
@@ -91,54 +101,98 @@ Disposition Jeedom fixe (type MVC). Pièces principales, toutes nommées d'aprè
 >   `git status --short plugin_info/configuration.php`. Cf. mémoire
 >   `feedback-configuration-php-permission-scope`.
 
-- **`plugin_info/info.json`** — manifeste (id, `name`, version, `require`, OS min/max, `category`,
-  `hasDependency`, `hasOwnDeamon`, langues, `compatibility`, liens doc/forum). La `description` multilingue
-  se met **dans `info.json`** (objet à clés de langue), pas dans les fichiers i18n (cf. i18n).
-- **`plugin_info/install.php`** — `template_install/update/remove()` ; `pre_install.php` →
-  `template_pre_update()`.
-- **`plugin_info/packages.json`** — dépendances système/pip du démon (voir Démon & dépendances).
-- **`plugin_info/helperConfiguration.php`** — assistant CLI de renommage (cf. Présentation).
-- **`resources/demond/`** — **squelette de démon Python** (réutilisable si le plugin a besoin d'un
-  processus persistant : MQTT, WebSocket, port série, polling temps réel…). Contient `demond.py` +
-  la lib `jeedom/` (`jeedom_socket` PHP→démon, `jeedom_com` démon→Jeedom). **Désactivé par défaut**
-  (`info.json "hasOwnDeamon": false`) ; l'activer implique `hasOwnDeamon: true`, les hooks
-  `deamon_info/deamon_start/deamon_stop` dans la classe principale, et un pont PHP↔démon
-  (`sendToDaemon()` côté PHP, callback `core/php/jee<Id>.php` côté démon→Jeedom).
+- **`plugin_info/info.json`** — manifeste. Valeurs actées au cadrage : `category`
+  **`devicecommunication`**, `hasDependency` **true**, `hasOwnDeamon` **true**,
+  `maxDependancyInstallTime` **15**, `os.min` **12** (imposé par `python-roborock`, qui exige
+  Python ≥ 3.11 — **Debian 11 est exclu**), langues `fr_FR`/`en_US`/`de_DE`/`es_ES`. La `description`
+  multilingue se met **dans `info.json`** (objet à clés de langue), pas dans les fichiers i18n (cf. i18n).
+- **`plugin_info/install.php`** — `jeeroborock_install/update/remove()` ; `pre_install.php` →
+  `jeeroborock_pre_update()`.
+- **`plugin_info/packages.json`** — dépendances pip du démon (voir Démon & dépendances).
+
+### Côté démon
+
+- **`resources/demond/`** — le démon Python. Il porte **tout** le contrat Roborock via `python-roborock` :
+  authentification cloud, canal MQTT chiffré, décodage des états, catalogue de commandes, et les appels
+  HTTPS des routines. La lib `jeedom/` fournit `jeedom_socket` (PHP→démon) et `jeedom_com` (démon→Jeedom).
+- **Deux canaux, et c'est le vrai point d'architecture du plugin.** Le `jeedom_socket` du squelette est
+  *fire-and-forget*, or quatre opérations de la page de configuration exigent une **réponse immédiate**
+  (envoyer le code e-mail, le valider, découvrir les robots, lister les routines). D'où :
+  1. **Synchrone** — le démon expose un serveur HTTP sur **`127.0.0.1` uniquement**, protégé par
+     l'**apikey** du plugin, interrogé par `jeeroborockDaemon` avec des timeouts courts. `aiohttp` étant
+     déjà une dépendance transitive de `python-roborock`, cela n'ajoute **aucune** dépendance.
+  2. **Push** — le callback `jeedom_com` standard (démon → `core/php/jeeJeeroborock.php`) pour les mises
+     à jour d'état non sollicitées.
+- **Corollaires non triviaux** : le démon doit être **lançable sans identifiants** (le login passe par
+  lui, « non authentifié » est un état normal), et il **conserve l'instance client** entre l'envoi du code
+  et sa validation — l'en-tête `header_clientid` dérive d'un identifiant régénéré à chaque instanciation.
+- Le démon renvoie des **codes d'erreur stables** (`AUTH_EXPIRED`, `RATE_LIMIT`, `DEVICE_OFFLINE`…) que le
+  PHP traduit en français. **Ne jamais parser un message d'erreur anglais de la librairie.**
 
 ## Configuration & secrets
 
-- **Config plugin** (`config::save/byKey(..., 'template')`) : clés globales du plugin (identifiants d'API,
-  URL de broker, options). Les clés **sensibles** (secrets, mots de passe) se déclarent dans
-  `public static $_encryptConfigKey = array('cle1', 'cle2');` sur la classe principale → le core les
-  **chiffre/déchiffre automatiquement**. Les hooks `preConfig_<clé>($value)` permettent de valider/purger
-  avant enregistrement (⚠️ `preConfig_<clé>` est un **nom de méthode fixe** — pas d'itération dynamique sur
-  des clés inconnues).
-- **Config par équipement** (`$eqLogic->getConfiguration('<clé>')`) : réglages propres à chaque instance.
-  Les champs sensibles d'un **équipement** se chiffrent via les méthodes d'instance `encrypt()`/`decrypt()`.
-- **Tokens / états volatils** : cache **chiffré** via la classe `cache` (`cache::set/byKey/delete`).
-  Adapté à des jetons OAuth à durée courte (refresh proactif/réactif).
+- **Config plugin** (`config::save/byKey(..., 'jeeroborock')`) : e-mail du compte Roborock, **`UserData`**
+  obtenu après authentification (jeton + identifiants dérivés `rriot`), `base_url` régionale, port du
+  canal HTTP local du démon, niveau de log. Les clés **sensibles** — au minimum le `UserData` — sont
+  déclarées dans `public static $_encryptConfigKey = array(...);` sur la classe principale → le core les
+  **chiffre/déchiffre automatiquement**. Les hooks `preConfig_<clé>($value)` permettent de valider avant
+  enregistrement (⚠️ `preConfig_<clé>` est un **nom de méthode fixe** — pas d'itération dynamique).
+  **Il n'y a pas de champ mot de passe** : décision de cadrage, le flux d'authentification est le code
+  e-mail.
+- **Config par équipement** (`$eqLogic->getConfiguration('<clé>')`) : `duid`, modèle, produit, firmware,
+  `pv`, indicateur « robot partagé ». ⚠️ **Aucun secret** ici — en particulier **jamais le `local_key`**
+  du robot, qui ne quitte pas le démon.
+- **Séparation des secrets, règle centrale du plugin** : `local_key`, identifiants `rriot` et jetons de
+  session restent **côté Python**. Côté PHP, seul le `UserData` chiffré existe. Motif : une trace
+  d'exception PHP expose les **arguments** de chaque frame — un secret passé en paramètre, plus un
+  `displayException()` sur le chemin de sortie, et le secret atteint le DOM.
+- **États volatils** : cache **chiffré** via la classe `cache` (`cache::set/byKey/delete`).
 - ⚠️ **Jamais** de secret/token/mot de passe en clair dans les logs, le DOM, les réponses AJAX ou les
-  commentaires.
+  commentaires — **quel que soit le niveau de log**.
+- ⚠️ **La vérification TLS ne doit jamais être désactivée**, ni en PHP ni dans le démon, quel que soit le
+  problème de certificat rencontré avec les serveurs régionaux Roborock. Contournement explicitement
+  refusé au cadrage.
 
 ## Démon & dépendances
 
-- Un démon n'est justifié que si le plugin a besoin d'un **canal persistant / temps réel** (MQTT,
-  WebSocket, série, push). Pour un plugin **REST + polling cron**, préférer **sans démon** (100 % PHP,
-  `hasOwnDeamon: false`) : c'est plus simple et suffisant.
-- Les dépendances (Python/pip) se déclarent dans **`plugin_info/packages.json`** (uniquement `pip3`).
-  ⚠️⚠️ **Pièges connus du format `packages.json`** (règles génériques Jeedom, coûteuses à redécouvrir) :
-  - La **version se met dans la VALEUR, pas dans la clé** : `"paho-mqtt": {"version": "1.6.1"}`, **jamais**
-    `"paho-mqtt==1.6.1": {}`. Le core compare la **clé** (nom nu) à `pip list` via
+Le plugin **a un démon** (`hasOwnDeamon: true`) : le canal MQTT persistant et le protocole binaire
+chiffré l'imposent. La règle générale « REST + polling cron, préférer sans démon » **ne s'applique pas
+ici** ; ce point est arbitré, ne le rouvre pas.
+
+- **Dépendance unique : `python-roborock`, version exacte `7.8.0`**, déclarée dans
+  `plugin_info/packages.json` (`pip3`). Le démon doit être lancé avec l'interpréteur du **venv du plugin**
+  (`system::getCmdPython3`), **jamais** `python3` en dur.
+- ⚠️ **La version ne peut pas être plafonnée** : `packages.json` interdit les opérateurs (voir pièges
+  ci-dessous), or la librairie casse son API entre majeures. Garde-fou retenu : le démon **logge au
+  démarrage la version détectée** et alerte si la majeure dépasse celle testée. Une montée de version est
+  une décision explicite, pas une dérive.
+- ⚠️⚠️ **Pièges connus du format `packages.json`** (règles génériques Jeedom, coûteuses à redécouvrir) :
+  - La **version se met dans la VALEUR, pas dans la clé** : `"python-roborock": {"version": "7.8.0"}`,
+    **jamais** `"python-roborock==7.8.0": {}`. Le core compare la **clé** (nom nu) à `pip list` via
     `isset($installPackage[strtolower($clé)])` (`system::checkAndInstall`). Une clé contenant `==x.y.z` ne
     matche jamais le nom installé → paquet vu « à installer » en permanence → indicateur bloqué NOK +
     réinstallation forcée à chaque passe.
   - **Jamais de `<`/`>` dans le champ `version`** (ex. `"<2.0.0"`) : `installPackage` colle `$package .=
     $version` non quoté → redirection shell (`2.0.0: No such file or directory`, paquet jamais installé).
     Toujours une **version exacte** sans opérateur.
-  - **Ne PAS définir `<id>::dependancy_info()`** : dès que `packages.json` existe, le core calcule l'état
-    **uniquement** depuis `checkAndInstall(packages.json)` et n'appelle jamais cette méthode statique (code
-    mort). Pour un contrôle *supplémentaire* (post-`packages.json`), le hook officiel est
+  - **Ne PAS définir `jeeroborock::dependancy_info()`** : dès que `packages.json` existe, le core calcule
+    l'état **uniquement** depuis `checkAndInstall(packages.json)` et n'appelle jamais cette méthode
+    statique (code mort). Pour un contrôle *supplémentaire*, le hook officiel est
     `additionnalDependancyCheck()` (appelé seulement si l'état `packages.json` est déjà `ok`).
+
+### Quotas Roborock — contrainte de conception, pas un détail
+
+Les quotas sont **durs** et **partagés avec l'application mobile** de l'utilisateur : login **3/min,
+10/h, 20/jour** ; home data **3/min, 5/h, 40/jour**. Conséquences qui engagent le code :
+
+- La **découverte des équipements n'est pas une opération de rafraîchissement** : elle se déclenche à la
+  demande et son résultat est mis en cache.
+- **Aucun retry automatique** sur le login. Jamais de boucle de re-tentative : au-delà du quota, c'est le
+  compte Roborock de l'utilisateur qui est pénalisé, y compris dans son application mobile.
+- Une erreur de quota produit un **message explicite invitant à patienter**, jamais une nouvelle
+  tentative.
+- La **ré-authentification exige une action humaine** (lire un code dans sa boîte mail) : elle ne peut pas
+  être automatisée, et le plugin ne doit pas faire semblant d'essayer.
 
 ## Workflows / CI
 
@@ -178,8 +232,8 @@ Le hook est **non-bloquant** : il avertit si la version n'a pas pu être incrém
   Toute classe référencée depuis un **point d'entrée externe** (`core/ajax/*.ajax.php`, hooks cron,
   `desktop/php/*.php`, `install.php`) — via `Classe::`, `new Classe`, `catch (Classe …)` — doit soit avoir
   son **propre** fichier `<Classe>.class.php`, soit voir son chargement assuré en transitant par la classe
-  principale `template`/`templateCmd` (dont le fichier `template.class.php` charge du même coup les classes
-  annexes qu'il contient). Un appel **direct** à une classe annexe (ex. un client API `templateApi`) depuis
+  principale `jeeroborock`/`jeeroborockCmd` (dont le fichier `jeeroborock.class.php` charge du même coup les classes
+  annexes qu'il contient). Un appel **direct** à une classe annexe (ex. un client API `jeeroborockDaemon`) depuis
   un point d'entrée externe = `Fatal error: Class not found` au runtime.
 - **Aucune méta-séquence littérale dans un commentaire ou une chaîne (fatale, et invisible à la
   relecture)** — un délimiteur écrit au milieu d'une phrase n'est pas du texte : le parseur le prend pour
@@ -200,11 +254,11 @@ Le hook est **non-bloquant** : il avertit si la version n'a pas pu être incrém
   déclenche que sur push `beta` ou PR. Le contrôle en place est
   `python .claude/scripts/verif-plugin.py` (colonne **`meta=`**) — **à lancer avant chaque commit**.
 - **Centraliser les accès externes** : si le plugin appelle une API HTTP, faire transiter **tous** les
-  appels par une **brique unique** (ex. une classe `templateApi`) plutôt que du cURL épars. Si le plugin a
+  appels par une **brique unique** (ex. une classe `jeeroborockDaemon`) plutôt que du cURL épars. Si le plugin a
   un démon, **toute** commande sortante passe par le pont démon (jamais de socket/MQTT épars).
 - Indentation **2 espaces** en PHP/JS pour `core/class`, `core/ajax`, `desktop/js`… ; ⚠️ **exception** :
   `desktop/php/*.php` (pages) sont en **tabulations + CRLF** — respecter l'existant fichier par fichier.
-- Logs via `log::add('template', 'debug'|'info'|'warning'|'error', $msg)` ; **jamais** de secret exposé.
+- Logs via `log::add('jeeroborock', 'debug'|'info'|'warning'|'error', $msg)` ; **jamais** de secret exposé.
 - **Robustesse cron** : un équipement en erreur ne doit **pas** interrompre la boucle → `try/catch` **par
   équipement**. Respecter tout **rate-limit / quota** d'une API tierce (backoff sur 429, cooldown).
 - Les `.htaccess` de `core/php`, `core/class`, `core/ajax`, `resources/`… interdisent l'accès web direct —
@@ -226,7 +280,7 @@ traduction : la clé EST le texte français). Langues cibles usuelles : **`en_US
 - Les traductions vivent dans `core/i18n/<langue>.json`, **un fichier par langue cible** (pas de
   `fr_FR.json`). Format :
   ```json
-  { "plugins/template/<chemin/relatif/fichier>": { "Texte français": "Traduction" } }
+  { "plugins/jeeroborock/<chemin/relatif/fichier>": { "Texte français": "Traduction" } }
   ```
 - ⚠️ **Exception `info.json` — mécanisme DISTINCT** : la `description` (et le `name`) du manifeste se
   traduit via un **objet à clés de langue INLINE dans `plugin_info/info.json`** —
@@ -240,24 +294,37 @@ traduction : la clé EST le texte français). Langues cibles usuelles : **`en_US
 
 ## Feuille de route, specs & mémoire interne
 
-- **`.memory/specs/`** — specs des features à développer. Convention : une feature = une spec
-  **fonctionnelle** `NN-nom.md` (critères d'acceptation = *definition of done*) + une spec **technique**
-  `NN-nom-tech.md` (plan d'implémentation). Voir `.memory/specs/README.md`. Le template est **livré sans
-  specs** : elles se créent au fil des features (l'orchestrateur `/feature` écrit la spec technique).
-- **`.memory/analyse/`** — connaissance Jeedom **transverse et réutilisable** (décisions, pièges vérifiés
-  contre la source du core), **découvrable via `.memory/analyse/INDEX.md`**. Contenu générique fourni :
-  `jeedom-widgets-commandes.md` (widgets de commande), `jeedom-panel-page-menu.md` (page au menu).
+- **`.memory/specs/`** — specs des features. Convention : une feature = une spec **fonctionnelle**
+  `NN-nom.md` (critères d'acceptation = *definition of done*) + une spec **technique** `NN-nom-tech.md`
+  (plan d'implémentation, écrite par `/feature`). Voir `.memory/specs/README.md` pour la roadmap complète
+  et la table d'ordre.
+  - **`MVP/`** — 9 UC (01→09) : configuration → dépendances/démon → pont PHP↔démon → authentification →
+    test de connexion → découverte des équipements → commandes info → commandes d'action →
+    **routines (« usages »)**. L'UC 09 est l'exigence explicite de l'utilisateur ; elle passe par du pur
+    HTTPS relayé par le cloud et fonctionne donc **même si le canal MQTT du robot est indisponible**.
+  - **`post-mvp/05-temps-reel-et-robustesse/`** (10→11) — push MQTT et fraîcheur, puis robustesse et
+    ré-authentification. **Premier domaine à traiter après le MVP** : le MVP s'arrête volontairement à un
+    rafraîchissement à la demande.
+  - **`post-mvp/10-etats-detailles/`** (12→15) — consommables, station d'accueil, erreurs, widget tuile.
+  - **`post-mvp/20-carte-et-pieces/`** (16→19) — pièces/segments, cartes multiples, image, vue carte.
+    Domaine le plus coûteux techniquement.
+  - **`post-mvp/30-pilotage-fin/`** (20→25) — aspiration, eau, itinéraire/mode, entretien, **nettoyage par
+    pièce**, zone et point.
+  - **`post-mvp/40-journal-et-planification/`** (26→28) — journal, statistiques, programmations.
+  - **`post-mvp/50-transport-local-et-diagnostic/`** (29→31) — transport local, diagnostic, firmware.
+- **`.memory/analyse/`** — connaissance **transverse et réutilisable**, **découvrable via
+  `.memory/analyse/INDEX.md`** (§ 0 = incertitude → fichier). Ne redécouvre pas ce qui y est déjà vérifié.
+  - Propres au plugin : `jeeroborock-architecture.md` (décisions D1→D10), `jeeroborock-cloud-api.md`
+    (contrat HTTPS, login, `homedata`, **routines**, quotas), `jeeroborock-mqtt-protocole.md` (canal
+    robot, framing, push, catalogue de commandes, cartes), `jeeroborock-modele-equipement.md` (mapping
+    Jeedom), `jeeroborock-implementations-reference.md` (table « incertitude → implémentation de
+    référence » : `python-roborock`, Home Assistant, ioBroker).
+  - Génériques Jeedom : `jeedom-widgets-commandes.md`, `jeedom-panel-page-menu.md`.
 - **`.memory/external/doc/jeedom/INDEX.md`** — index de la doc développeur Jeedom (pour un `WebFetch`
   ciblé sans re-parcourir le sommaire).
 
-L'outillage `/` fonctionne en **trois temps** :
+L'outillage `/` fonctionne en **deux temps** (le bootstrap `/init-plugin` a déjà eu lieu) :
 
-- **Bootstrap — `/init-plugin`** (à lancer une fois sur le template vierge) : interroge l'utilisateur sur
-  le but du plugin, fait analyser l'intégration (agent `jeedom-plugin-architect` → fichiers
-  `.memory/analyse/`), met à jour `CLAUDE.md`/`README.md`, puis génère **toutes les specs fonctionnelles**
-  (`.memory/specs/MVP/` + post-MVP par domaine, via les agents `spec-writer` + skill `spec`). Il **ne
-  produit pas** de spec technique ni de code, et **ne renomme pas** le squelette (rôle de
-  `helperConfiguration.php`).
 - **Implémentation — `/feature <spec>`** (à lancer par UC) : à partir d'une spec fonctionnelle, **fait
   produire le plan technique par l'agent `jeedom-tech-planner`**, le fait valider par l'utilisateur, écrit
   la spec technique, délègue l'implémentation à l'agent `php-jeedom-dev` (skill `dev`), lance les reviews
@@ -265,14 +332,15 @@ L'outillage `/` fonctionne en **trois temps** :
   mémoire.
   ⚠️ **Chaque sous-agent épingle son `effort` dans son frontmatter** : sans cette ligne il **hérite de
   l'effort de la session**, et la boucle d'édition mécanique tourne au niveau de réflexion de
-  l'orchestrateur — c'est là que partent les tokens, pas dans le raisonnement de l'orchestrateur lui-même.
-  La réflexion coûteuse est concentrée là où une erreur se paie cher : le **plan**
-  (`jeedom-tech-planner`, Opus `xhigh`) et les **reviews** (`code-reviewer`/`security-reviewer`, `high`).
-  Elle est volontairement basse là où le travail est mécanique et déjà cadré (`php-jeedom-dev` `medium`,
-  `spec-writer` `medium`, `translator` `low`). Les commandes s'élèvent elles-mêmes : `/feature` en `high`
-  (il ne fait plus que piloter), `/init-plugin` en `xhigh` (cadrage = arbitrage).
+  l'orchestrateur — c'est là que partent les tokens. La réflexion coûteuse est concentrée là où une erreur
+  se paie cher : le **plan** (`jeedom-tech-planner`, Opus `xhigh`) et les **reviews**
+  (`code-reviewer`/`security-reviewer`, `high`). Elle est volontairement basse là où le travail est
+  mécanique et déjà cadré (`php-jeedom-dev` `medium`, `spec-writer` `medium`, `translator` `low`).
 - **Enchaînement autonome — `/auto-dev "<liste d'UC>"`** puis **`/change <explication>`** : le mode
   « sans humain dans la boucle », détaillé ci-dessous.
+
+> **Ajouter un domaine plus tard** : les agents `jeedom-plugin-architect` (analyse + roadmap) et
+> `spec-writer` (specs fonctionnelles) restent utilisables hors bootstrap, sans rejouer `/init-plugin`.
 
 ### Mode autonome — `/auto-dev` et `/change`
 
@@ -281,14 +349,16 @@ des cycles `/feature` complets **sans poser de question** : à chaque gate humai
 selon la grille `.claude/templates/principes-arbitrage.md` puis **journalise** l'arbitrage. Une UC =
 **un sous-agent `auto-dev-runner`** en contexte neuf, et **un commit sur `master`** — jamais de `push`.
 
-⚠️ **Prérequis : des specs fonctionnelles.** Le template est livré **sans specs** : sur un dépôt
-vierge, `/auto-dev` n'a rien à résoudre. L'ordre est donc `/init-plugin` (qui produit les specs
-fonctionnelles) **puis** `/auto-dev`.
+✅ **Prérequis rempli** : les 31 specs fonctionnelles existent (`/init-plugin` a été joué le
+2026-09-17). `/auto-dev` a donc de quoi travailler dès maintenant — l'ordre naturel est
+`/auto-dev "MVP 01 .. MVP 09"`, ou UC par UC avec `/feature` pour garder la main.
 
-⚠️ **À faire après `/init-plugin` : relire `.claude/templates/principes-arbitrage.md`.** C'est cette
-grille (P1→P8) qui **remplace les réponses de l'utilisateur** — deux de ses principes (P2 invariants
-du projet, P5 dépendances/démon) citent des choix propres au plugin. Une grille laissée générique
-produit des décisions génériques, donc fausses.
+⚠️ **La grille `.claude/templates/principes-arbitrage.md` a été spécialisée pour ce plugin** (P2
+invariants, P5 dépendances/démon) : elle porte les décisions de cadrage — démon obligatoire,
+`python-roborock` 7.8.0 épinglé, aucun appel cloud en PHP, code e-mail seul, secrets cantonnés au démon,
+quotas durs. C'est elle qui **remplace les réponses de l'utilisateur** en mode autonome. Si une décision
+de cadrage évolue, mettre la grille à jour **en même temps** que `CLAUDE.md`, sinon `/auto-dev` tranchera
+d'après l'ancien cadrage.
 
 - **Le runner ne réécrit pas `/feature`** : il invoque la skill `feature` telle quelle et ne surcharge
   que les **gates humaines** (spec absente → `bloque` sans rien inventer ; questions du planner →
@@ -306,7 +376,7 @@ produit des décisions génériques, donc fausses.
   seconde.
 - **`recap.md` à la racine** — ⚠️ **fichier GÉNÉRÉ**, jamais édité à la main : réassemblé par
   `python .claude/scripts/auto-dev.py recap` depuis les `decisions.md` des runners et les révisions
-  (son titre est repris d'`info.json`, il suit donc le renommage du squelette). Chaque entrée est
+  (son titre est repris d'`info.json`, soit « JeeRoborock »). Chaque entrée est
   autoportante — question, décision, alternatives écartées, portée dans le code, coût d'un revirement,
   migration de l'existant — parce que son lecteur cible démarre en **contexte vide**.
 - **`/change <explication>`** (ou `/change D-MVP04-02 <explication>`, `/change --liste`) : retrouve la
@@ -322,5 +392,5 @@ produit des décisions génériques, donc fausses.
 
 > **Maintenance de ce fichier** : `CLAUDE.md` est lu par **toute** future session. Le tenir à jour quand
 > l'architecture, les conventions ou l'outillage changent — mais ne pas y consigner l'avancement détaillé
-> d'un plugin concret (ça, c'est le rôle des specs et de la doc du plugin réel une fois le template
-> renommé).
+> des UC (ça, c'est le rôle de `.memory/specs/`, du journal `/auto-dev` et de la documentation
+> utilisateur sous `docs/`).

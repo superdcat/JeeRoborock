@@ -35,7 +35,7 @@ fichiers `desktop/**`, `core/**`, `plugin_info/configuration.php`, etc.) :
    - PHP : motif `__('Texte français', __FILE__)` (et `__("...", __FILE__)`)
 2. **Pour chaque chaîne**, garantir une entrée de traduction dans **chaque** fichier cible, sous le chemin
    `plugins/<id>/<chemin/relatif/du/fichier>` (exactement le chemin relatif depuis la racine du plugin,
-   ex. `plugins/template/plugin_info/configuration.php`). L'id du plugin est **`template`**.
+   ex. `plugins/jeeroborock/plugin_info/configuration.php`). L'id du plugin est **`jeeroborock`**.
    ⚠️ `plugin_info/configuration.txt` est un **miroir éditable** de `configuration.php` : ton scan verra
    les deux fichiers porter les mêmes chaînes — indexe **uniquement** sous le `.php`, le seul exécuté par
    Jeedom, sinon tu produis des clés en double ou de fausses « orphelines ».
@@ -101,10 +101,10 @@ Tu produis TOUJOURS une réponse au format JSON suivant :
     "es_ES": 7
   },
   "orphans": [
-    { "lang": "en_US", "path": "plugins/template/...", "key": "Texte source disparu" }
+    { "lang": "en_US", "path": "plugins/jeeroborock/...", "key": "Texte source disparu" }
   ],
   "missing": [
-    { "lang": "de_DE", "path": "plugins/template/...", "key": "Clé non traduite" }
+    { "lang": "de_DE", "path": "plugins/jeeroborock/...", "key": "Clé non traduite" }
   ],
   "summary": "Synthèse en 1-2 phrases : combien de clés couvertes, état de la couverture des langues."
 }
