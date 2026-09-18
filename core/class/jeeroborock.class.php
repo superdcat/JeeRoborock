@@ -45,6 +45,11 @@ class jeeroborock extends eqLogic {
   const DUREE_CACHE_INVENTAIRE = 86400;
   const CLE_CACHE_INVENTAIRE = 'jeeroborock::inventaireCompte';
 
+  // Synchronisation des équipements (UC06). Neutralisation défensive des chaînes
+  // d'origine cloud avant log/DOM/base ; garde-fou symétrique de LIMITE_APPAREILS côté démon.
+  const LONGUEUR_MAX_TEXTE_INVENTAIRE = 128;
+  const NB_MAX_ROBOTS_SYNCHRO = 64;
+
   // Attention : userData contient le jeton de session et les identifiants dérivés rriot.
   // Ne jamais définir preConfig_userData / postConfig_userData : une exception levée depuis
   // une frame qui reçoit ce paramètre exposerait le secret via displayException() (trace complète
@@ -153,6 +158,122 @@ class jeeroborock extends eqLogic {
     } catch (Throwable $e) {
       log::add('jeeroborock', 'warning', 'oublierInventaireCompte : échec de purge : ' . $e->getMessage());
     }
+  }
+
+  /*     * ***********************Découverte des équipements (UC06)************ */
+
+  // Transforme l'inventaire du compte Roborock en équipements Jeedom stables et
+  // idempotents. Aucune retentative sur un refus de quota (D-06-4) : jeeroborockException
+  // remonte telle quelle à l'appelant (AJAX).
+  public static function synchroniserEquipements() {
+    $r = jeeroborockDaemon::appeler(
+      'decouvrirEquipements',
+      array('userData' => self::getUserData(), 'baseUrl' => self::getBaseUrlCompte(), 'email' => self::getEmailCompte()),
+      jeeroborockDaemon::TIMEOUT_DECOUVERTE
+    );
+
+    $robots = (isset($r['robots']) && is_array($r['robots'])) ? array_slice($r['robots'], 0, self::NB_MAX_ROBOTS_SYNCHRO) : array();
+    $nonSupportesBruts = (isset($r['nonSupportes']) && is_array($r['nonSupportes'])) ? array_slice($r['nonSupportes'], 0, self::NB_MAX_ROBOTS_SYNCHRO) : array();
+
+    $crees = 0;
+    $misAJour = 0;
+    $echecs = 0;
+    $partages = array();
+
+    foreach ($robots as $robot) {
+      if (!is_array($robot)) {
+        $echecs++;
+        continue;
+      }
+      try {
+        $resultat = self::appliquerRobot($robot);
+        if ($resultat == 'cree') {
+          $crees++;
+        } else {
+          $misAJour++;
+        }
+        if (!empty($robot['shared'])) {
+          $partages[] = self::texteInventaire(isset($robot['nomRoborock']) ? $robot['nomRoborock'] : '');
+        }
+      } catch (Throwable $e) {
+        $echecs++;
+        log::add('jeeroborock', 'error', 'synchroniserEquipements : échec d\'enregistrement d\'un robot : ' . self::nettoyerPourLog(substr($e->getMessage(), 0, 256)));
+      }
+    }
+
+    $nonSupportes = array();
+    foreach ($nonSupportesBruts as $nonSupporte) {
+      if (!is_array($nonSupporte)) {
+        continue;
+      }
+      $nonSupportes[] = self::texteInventaire(isset($nonSupporte['nomRoborock']) ? $nonSupporte['nomRoborock'] : '');
+    }
+
+    if (isset($r['nbTotal']) && is_numeric($r['nbTotal']) && intval($r['nbTotal']) >= 0) {
+      self::enregistrerInventaireCompte(intval($r['nbTotal']));
+    }
+
+    log::add('jeeroborock', 'info', 'Synchronisation des équipements : inventaire homedata, quota 40/jour - ' . $crees . ' créé(s), ' . $misAJour . ' mis à jour, ' . $echecs . ' échec(s), ' . count($nonSupportes) . ' non supporté(s)');
+
+    return array(
+      'crees'        => $crees,
+      'misAJour'     => $misAJour,
+      'echecs'       => $echecs,
+      'nbTotal'      => isset($r['nbTotal']) ? intval($r['nbTotal']) : 0,
+      'nonSupportes' => $nonSupportes,
+      'partages'     => $partages,
+    );
+  }
+
+  // Crée ou met à jour l'équipement Jeedom correspondant à un robot découvert. Retourne
+  // 'cree' ou 'misAJour'. logicalId = duid (identité stable, insensible au renommage).
+  private static function appliquerRobot($_robot) {
+    $duid = trim((string) (isset($_robot['duid']) ? $_robot['duid'] : ''));
+    if (!self::duidValide($duid)) {
+      log::add('jeeroborock', 'warning', 'Robot ignoré : duid invalide : ' . self::nettoyerPourLog(substr($duid, 0, 128)));
+      throw new Exception('duid invalide');
+    }
+
+    $eqLogic = eqLogic::byLogicalId($duid, 'jeeroborock');
+    $creation = !is_object($eqLogic);
+
+    if ($creation) {
+      $eqLogic = new jeeroborock();
+      $eqLogic->setEqType_name('jeeroborock');
+      $eqLogic->setLogicalId($duid);
+      $eqLogic->setName(self::texteInventaire(isset($_robot['nomRoborock']) ? $_robot['nomRoborock'] : ''));
+      if ($eqLogic->getName() == '') {
+        $eqLogic->setName(sprintf(__('Robot Roborock %s', __FILE__), substr($duid, 0, 8)));
+      }
+      $eqLogic->setIsEnable(1);
+      $eqLogic->setIsVisible(1);
+    }
+
+    $eqLogic->setConfiguration('duid', self::texteInventaire($duid));
+    $eqLogic->setConfiguration('model', self::texteInventaire(isset($_robot['model']) ? $_robot['model'] : ''));
+    $eqLogic->setConfiguration('productName', self::texteInventaire(isset($_robot['productName']) ? $_robot['productName'] : ''));
+    $eqLogic->setConfiguration('fv', self::texteInventaire(isset($_robot['fv']) ? $_robot['fv'] : ''));
+    $eqLogic->setConfiguration('pv', self::texteInventaire(isset($_robot['pv']) ? $_robot['pv'] : ''));
+    $eqLogic->setConfiguration('sn', self::texteInventaire(isset($_robot['sn']) ? $_robot['sn'] : ''));
+    $eqLogic->setConfiguration('shared', !empty($_robot['shared']) ? 1 : 0);
+    $eqLogic->setConfiguration('nomRoborock', self::texteInventaire(isset($_robot['nomRoborock']) ? $_robot['nomRoborock'] : ''));
+
+    $eqLogic->save();
+
+    return $creation ? 'cree' : 'misAJour';
+  }
+
+  // Valide un duid d'origine cloud avant usage comme logicalId et dans un log::add()
+  // (ancres \A/\z, jamais ^/$ : cf. rappel UC03 sur la forge de ligne de log).
+  private static function duidValide($_duid) {
+    return preg_match('/\A[A-Za-z0-9_.:-]{4,128}\z/', $_duid) === 1;
+  }
+
+  // Neutralise une chaîne d'origine cloud avant log/DOM/base : nettoyerPourLog() + trim +
+  // troncature.
+  private static function texteInventaire($_valeur, $_longueurMax = self::LONGUEUR_MAX_TEXTE_INVENTAIRE) {
+    $valeur = trim(self::nettoyerPourLog((string) $_valeur));
+    return substr($valeur, 0, $_longueurMax);
   }
 
   // Persiste la session obtenue par jeeroborockDaemon::appeler('validerCode', ...). NE LEVE
@@ -561,7 +682,7 @@ class jeeroborock extends eqLogic {
   * Fonction exécutée automatiquement tous les jours par Jeedom
   public static function cronDaily() {}
   */
-  
+
   /*
   * Permet de déclencher une action avant modification d'une variable de configuration du plugin
   * Exemple avec la variable "param3"

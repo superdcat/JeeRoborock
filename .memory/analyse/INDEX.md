@@ -14,7 +14,10 @@
 > Deux analyses **génériques Jeedom** (vérifiées contre la source du core) sont réutilisables par tout
 > plugin ; les analyses préfixées **`jeeroborock-`** sont **propres à ce plugin** (intégration Roborock).
 >
-> **Dernière mise à jour** : 2026-09-18 (UC05 : `jeeroborock-cloud-api.md` § 4.1 — sonde de session sans
+> **Dernière mise à jour** : 2026-09-18 (UC06 : `jeeroborock-modele-equipement.md` § 1 — le critère de
+> compatibilité V1 exige **aussi** la catégorie `VACUUM` et un produit résolu, pas seulement `pv` ;
+> `device_products` perd silencieusement un produit inconnu ; l'indicateur « partagé » est
+> `received_devices` et **jamais** `HomeDataDevice.share`. Avant : UC05 : `jeeroborock-cloud-api.md` § 4.1 — sonde de session sans
 > quota via `getHomeDetail`, refus du limiteur `home_data` détecté avant tout appel réseau,
 > `get_all_devices()` = robots propres + partagés, piège `base_url=""`. Avant : UC04 —
 > `jeedom-config-plugin-defauts.md` § 6 — le verrou de
@@ -65,6 +68,8 @@
 | **MQTT Roborock** : dérivation des identifiants, topics, framing 101/102, **push dps** (batterie, état…) | `jeeroborock-mqtt-protocole.md` §§ 1-3 |
 | Quels **états/commandes** existent sur un robot V1, capacités **dépendantes du modèle**, cartes & pièces | `jeeroborock-mqtt-protocole.md` §§ 4-8 |
 | Mapping **eqLogic/commandes Jeedom** (logicalId = `duid`), commandes de routine, création conditionnelle | `jeeroborock-modele-equipement.md` |
+| ⚠️ **Un robot est-il supporté ?** Le critère n'est **pas** seulement `pv == "1.0"` : il faut **aussi** la catégorie `robot.vacuum.cleaner` **et** un produit résolu (`get_home_data_v3` renvoie aussi les non-robots du compte) ; ne pas utiliser `device_products`, qui perd silencieusement un produit inconnu | `jeeroborock-modele-equipement.md` § 1 |
+| ⚠️ **Détecter un robot PARTAGÉ** : c'est l'appartenance à `received_devices` — le champ `HomeDataDevice.share` existe mais n'est lu **nulle part** dans la librairie, sa sémantique n'est corroborée par rien | `jeeroborock-modele-equipement.md` § 1 |
 | « Où lire le contrat ? » — fichiers de `python-roborock`, Home Assistant, ioBroker + points non confirmés | `jeeroborock-implementations-reference.md` |
 
 > Si aucun fichier ne couvre le sujet : ce n'est pas (encore) analysé en interne → passer à la doc externe

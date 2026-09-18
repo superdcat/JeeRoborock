@@ -143,13 +143,19 @@ Disposition Jeedom fixe (type MVC), nommée d'après l'id `jeeroborock`.
   `POST /rpc` + `GET /sante`) et le mapping des exceptions dans **`erreurs.py`** ; `jeeroborockd.py` ne
   garde que le cycle de vie. Ajouter une opération = `canal.enregistrer('<nom>', <coroutine>)`.
   UC04 a posé **`authentification.py`** (opérations `demanderCode`, `validerCode`, `restaurerSession`,
-  rejointes en UC05 par `etatCompte`, plus la sérialisation du `UserData`) : **un module par domaine
-  fonctionnel**, enregistré explicitement depuis
+  rejointes en UC05 par `etatCompte`) et UC06 **`equipements.py`** (`decouvrirEquipements`) :
+  **un module par domaine fonctionnel**, enregistré explicitement depuis
   `jeeroborockd.py` — pas par effet de bord d'import. L'instance `RoborockApiClient` vit dans
   `contexte['auth']` et **doit** survivre entre l'envoi du code et sa validation (`header_clientid` dérive
   d'un identifiant régénéré à chaque instanciation) ; la session restaurée vit dans `contexte['session']`.
-  ⚠️ Toute opération qui ne fait qu'**interroger la validité de la session** appartient à ce module — ne
-  lui crée pas de module voisin, ce serait importer ses helpers privés de sérialisation depuis l'extérieur.
+  UC06 a extrait de `authentification.py` le module **`session.py`** : import gardé de la librairie
+  (`IMPORT_OK`, `UserData`, `RoborockApiClient`), `creer_client()` et la sérialisation du `UserData`
+  (`encoder_user_data`/`decoder_user_data`). **Tout nouveau module qui a besoin d'une session lit ces
+  helpers dans `session.py`** — jamais un symbole privé d'`authentification.py`.
+  ⚠️ Le dict `contexte['session']` (`userData`/`baseUrl`/`email`) est en revanche encore construit
+  **inline** par chaque opération qui le réamorce (4 occurrences) : arbitrage assumé d'UC06 pour ne pas
+  toucher au chemin d'authentification livré. À factoriser dans `session.py` au prochain cycle qui
+  modifie déjà `authentification.py` (cf. § Dette de `06-decouverte-creation-equipements-tech.md`).
   ⚠️ **Ne jamais sérialiser `contexte` en bloc** dans une réponse : il porte désormais des secrets.
   ⚠️ Ces coroutines tournent dans la **boucle asyncio unique** du démon : tout appel bloquant gèle **tout**
   le canal, `/sante` compris, et se présente à l'utilisateur comme « le démon ne répond pas » alors que le
@@ -280,7 +286,7 @@ Le plugin utilise un système **automatisé de versioning** via git hooks. À ch
 - Monter major/minor reste manuel : écrivez la nouvelle version à la main dans `info.json`, le hook repart de là
 - N'enregistre **jamais** les modifications de `info.json` non préparées (évite de commiter du code non revu)
 
-**Activation** (dans chaque clone) : 
+**Activation** (dans chaque clone) :
 ```bash
 git config core.hooksPath .githooks
 ```

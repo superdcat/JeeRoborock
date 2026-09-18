@@ -25,30 +25,21 @@
 # processus demon (D-04-2 de la spec technique). contexte['session'] porte la session
 # APRES succes ({'userData': str, 'baseUrl': str, 'email': str}).
 #
-# Import garde par try/except ImportError : le demon doit rester lancable meme sur un
-# venv partiellement installe (les operations retombent alors en INTERNAL_ERROR).
-#
 # UC05 ajoute etat_compte : sonde legere de l'etat du compte (session valide ? nombre de
 # robots ?), pilotee par le PHP via le parametre avecInventaire (D-05-2/D-05-8). Le PHP
 # pousse toujours la session en parametre (jamais de lecture de contexte['session']) :
 # l'operation est idempotente et immune a un redemarrage du demon.
+#
+# UC06 : la serialisation du UserData (encoder_user_data/decoder_user_data), la creation
+# de client (creer_client) et l'import garde de la librairie (IMPORT_OK) sont deplaces
+# dans le module de session partage session.py (dette explicite d'UC05). Ce fichier ne
+# porte plus que le flux d'authentification lui-meme.
 
-import base64
-import json
 import logging
 import re
 
 from erreurs import ErreurDemon, code_pour_exception
-
-try:
-    from roborock.data import UserData
-    from roborock.web_api import RoborockApiClient
-
-    _IMPORT_OK = True
-except ImportError:
-    UserData = None
-    RoborockApiClient = None
-    _IMPORT_OK = False
+from session import IMPORT_OK, RoborockApiClient, creer_client, decoder_user_data, encoder_user_data
 
 import canal
 
@@ -81,32 +72,8 @@ def _client_pour(email, contexte):
     return RoborockApiClient(email)
 
 
-def _encoder_user_data(user_data):
-    """base64(JSON compact) du UserData COMPLET (aucun exclude) : D-04-4, fidelite
-    d'aller-retour et confinement du secret dans une valeur opaque."""
-    corps = json.dumps(user_data.as_dict(), separators=(",", ":"), ensure_ascii=True)
-    return base64.b64encode(corps.encode("utf-8")).decode("ascii")
-
-
-def _decoder_user_data(valeur):
-    """Decode un blob produit par _encoder_user_data. Leve ErreurDemon('AUTH_EXPIRED')
-    sur tout echec, y compris une session structurellement incomplete (R-7 : from_dict
-    ignore silencieusement les cles inconnues)."""
-    try:
-        corps = base64.b64decode(valeur, validate=True)
-        donnees = json.loads(corps.decode("utf-8"))
-        if not isinstance(donnees, dict):
-            raise ValueError("userData decode : pas un objet")
-        user_data = UserData.from_dict(donnees)
-        if not user_data or not user_data.token or not user_data.rriot or not user_data.rriot.r:
-            raise ValueError("userData decode : session incomplete")
-        return user_data
-    except Exception as erreur:
-        raise ErreurDemon("AUTH_EXPIRED") from erreur
-
-
 async def demander_code(parametres, contexte):
-    if not _IMPORT_OK:
+    if not IMPORT_OK:
         raise ErreurDemon("INTERNAL_ERROR")
 
     email = parametres.get("email")
@@ -124,7 +91,7 @@ async def demander_code(parametres, contexte):
 
 
 async def valider_code(parametres, contexte):
-    if not _IMPORT_OK:
+    if not IMPORT_OK:
         raise ErreurDemon("INTERNAL_ERROR")
 
     email = parametres.get("email")
@@ -141,7 +108,7 @@ async def valider_code(parametres, contexte):
     base_url = await client.base_url
 
     contexte["session"] = {
-        "userData": _encoder_user_data(user_data),
+        "userData": encoder_user_data(user_data),
         "baseUrl": str(base_url),
         "email": email,
     }
@@ -155,7 +122,7 @@ async def valider_code(parametres, contexte):
 async def restaurer_session(parametres, contexte):
     """Aucun appel reseau, aucun quota consomme (D-04-7) : ne fait que recharger l'etat
     persiste par le PHP en RAM du demon. 'non authentifie' est un etat normal."""
-    if not _IMPORT_OK:
+    if not IMPORT_OK:
         raise ErreurDemon("INTERNAL_ERROR")
 
     user_data_brut = parametres.get("userData") or ""
@@ -166,20 +133,13 @@ async def restaurer_session(parametres, contexte):
         contexte["session"] = None
         return {"authentifie": False}
 
-    user_data = _decoder_user_data(user_data_brut)
+    user_data = decoder_user_data(user_data_brut)
     contexte["session"] = {
-        "userData": _encoder_user_data(user_data),
+        "userData": encoder_user_data(user_data),
         "baseUrl": str(base_url),
         "email": email,
     }
     return {"authentifie": True}
-
-
-def _client_compte(email, base_url):
-    """Cree un client dedie a la sonde d'etat de compte (UC05), independant de
-    contexte['auth'] (reserve au flux demanderCode/validerCode). base_url=(valeur or
-    None) : passer une chaine vide au lieu de None casse TOUTES les requetes (R-8)."""
-    return RoborockApiClient(email, base_url=(base_url or None))
 
 
 async def _sonder_session(client, user_data):
@@ -195,7 +155,7 @@ async def _sonder_session(client, user_data):
 
 
 async def etat_compte(parametres, contexte):
-    if not _IMPORT_OK:
+    if not IMPORT_OK:
         raise ErreurDemon("INTERNAL_ERROR")
 
     user_data_brut = parametres.get("userData") or ""
@@ -206,8 +166,8 @@ async def etat_compte(parametres, contexte):
     email = parametres.get("email") or ""
     avec_inventaire = bool(parametres.get("avecInventaire"))
 
-    user_data = _decoder_user_data(user_data_brut)
-    client = _client_compte(email, base_url)
+    user_data = decoder_user_data(user_data_brut)
+    client = creer_client(email, base_url)
 
     nb_robots = None
     quota_inventaire = False
@@ -232,7 +192,7 @@ async def etat_compte(parametres, contexte):
 
     # Succes : la session en contexte est reamorcee (idempotent, cf. restaurer_session).
     contexte["session"] = {
-        "userData": _encoder_user_data(user_data),
+        "userData": encoder_user_data(user_data),
         "baseUrl": str(base_url),
         "email": email,
     }

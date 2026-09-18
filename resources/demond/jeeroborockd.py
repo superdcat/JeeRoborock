@@ -38,6 +38,7 @@ import time
 from aiohttp import web
 
 import authentification
+import equipements
 from canal import construire_application
 from jeedom.jeedom import jeedom_com, jeedom_utils
 
@@ -145,6 +146,7 @@ async def principal_async(args):
     # Enregistrement EXPLICITE (pas par effet de bord d'import) : ordre visible, echec
     # visible au demarrage plutot qu'un canal muet sur une operation manquante.
     authentification.enregistrer_operations()
+    equipements.enregistrer_operations()
 
     application = construire_application(args.apikey, contexte)
     try:

@@ -65,6 +65,19 @@ if (!isConnect('admin')) {
     </div>
   </fieldset>
   <fieldset>
+    <legend>{{Équipements}}</legend>
+    <div class="form-group">
+      <label class="col-md-4 control-label">{{Synchronisation}}
+        <sup><i class="fas fa-question-circle tooltips" title="{{La synchronisation interroge l'inventaire du compte Roborock, dont le quota est strictement limité et partagé avec l'application mobile : ne la lancez que lorsque vous ajoutez ou retirez un robot.}}"></i></sup>
+      </label>
+      <div class="col-md-8">
+        <a class="btn btn-default" id="bt_jeeroborockSynchroniser">{{Synchroniser les équipements}}</a>
+        <br/>
+        <span id="jeeroborockResultatSynchro"></span>
+      </div>
+    </div>
+  </fieldset>
+  <fieldset>
     <legend>{{Canal local avec le démon}}</legend>
     <div class="form-group">
       <label class="col-md-4 control-label">{{Port du canal local}}
@@ -221,6 +234,39 @@ if (!isConnect('admin')) {
       complete: function () {
         jeeroborockVerrouTest = false;
         $('#bt_jeeroborockTesterConnexion').removeClass('disabled');
+      }
+    });
+  });
+
+  var jeeroborockVerrouSynchro = false;
+
+  $('#bt_jeeroborockSynchroniser').on('click', function () {
+    if (jeeroborockVerrouSynchro) {
+      return;
+    }
+    jeeroborockVerrouSynchro = true;
+    var zoneResultat = $('#jeeroborockResultatSynchro');
+    $('#bt_jeeroborockSynchroniser').addClass('disabled');
+    zoneResultat.text("{{Synchronisation en cours…}}");
+    $.ajax({
+      type: 'POST',
+      url: 'plugins/jeeroborock/core/ajax/jeeroborock.ajax.php',
+      data: {action: 'synchroniserEquipements'},
+      dataType: 'json',
+      timeout: 30000,
+      error: function (requete) {
+        zoneResultat.text("{{Le démon ne répond pas.}}");
+      },
+      success: function (donnees) {
+        if (donnees.state != 'ok') {
+          zoneResultat.text(donnees.result);
+        } else {
+          zoneResultat.text(donnees.result.message);
+        }
+      },
+      complete: function () {
+        jeeroborockVerrouSynchro = false;
+        $('#bt_jeeroborockSynchroniser').removeClass('disabled');
       }
     });
   });

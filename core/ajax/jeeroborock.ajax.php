@@ -166,6 +166,44 @@ try {
         'badgeClasse' => 'label-success',
       ));
       break;
+    case 'synchroniserEquipements':
+      $email = jeeroborock::getEmailCompte();
+      if ($email == '') {
+        ajax::error(__('Renseignez l\'adresse e-mail du compte Roborock et enregistrez la configuration avant de demander un code.', __FILE__));
+        break;
+      }
+      if (!jeeroborock::estCompteLie()) {
+        ajax::error(__('Le compte Roborock n\'est pas lié : demandez un code de connexion pour authentifier le compte.', __FILE__));
+        break;
+      }
+
+      $r = jeeroborock::synchroniserEquipements();
+
+      $phrases = array();
+      if ($r['crees'] + $r['misAJour'] > 0) {
+        $phrases[] = sprintf(__('Synchronisation terminée : %1$s équipement(s) créé(s), %2$s mis à jour.', __FILE__), $r['crees'], $r['misAJour']);
+      } elseif (empty($r['nonSupportes'])) {
+        $phrases[] = __('Aucun robot compatible n\'a été trouvé sur ce compte Roborock.', __FILE__);
+      }
+      if (!empty($r['nonSupportes'])) {
+        $phrases[] = sprintf(__('Modèle non supporté par cette version du plugin : %s', __FILE__), implode(', ', array_slice($r['nonSupportes'], 0, 5)) . (count($r['nonSupportes']) > 5 ? '…' : ''));
+      }
+      if (!empty($r['partages'])) {
+        $phrases[] = sprintf(__('Robot(s) partagé(s) par un autre compte : %s', __FILE__), implode(', ', array_slice($r['partages'], 0, 5)) . (count($r['partages']) > 5 ? '…' : ''));
+      }
+      if ($r['echecs'] > 0) {
+        $phrases[] = sprintf(__('%s robot(s) n\'ont pas pu être enregistrés dans Jeedom. Consultez le log du plugin.', __FILE__), $r['echecs']);
+      }
+      $message = implode(' ', $phrases);
+
+      ajax::success(array(
+        'message'      => $message,
+        'crees'        => $r['crees'],
+        'misAJour'     => $r['misAJour'],
+        'nonSupportes' => count($r['nonSupportes']),
+        'echecs'       => $r['echecs'],
+      ));
+      break;
     default:
       throw new Exception(__('Aucune méthode correspondante à', __FILE__) . ' : ' . init('action'));
   }

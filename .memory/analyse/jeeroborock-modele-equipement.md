@@ -25,8 +25,32 @@ lien cloud est porté par chaque robot).
 ⚠️ **`local_key`, `rriot`, `token` ne sont jamais stockés côté eqLogic** : ils vivent dans le démon
 (cf. `jeeroborock-architecture.md` D4).
 
-**Robots non V1** (`pv` = `A01`/`B01`) : ne pas créer d'équipement silencieusement incomplet — les
-exclure de la création avec un message clair « modèle non supporté par cette version du plugin ».
+**Robots non V1** : ne pas créer d'équipement silencieusement incomplet — les exclure de la création
+avec un message clair « modèle non supporté par cette version du plugin ».
+
+⚠️ **Le critère de compatibilité n'est PAS seulement `pv`** (vérifié en UC06 contre
+`python-roborock` 7.8.0, `roborock/devices/device_manager.py` l. 48-53 et 235-281). La librairie
+elle-même refuse un appareil à **trois** conditions, et le plugin s'aligne exactement dessus :
+
+| Condition | Source | Pourquoi elle est indispensable |
+|---|---|---|
+| `device.pv == "1.0"` | `DeviceVersion.V1 = "1.0"` | écarte A01/B01 |
+| `product.category` vaut `"robot.vacuum.cleaner"` | `RoborockCategory.VACUUM` | `get_home_data_v3` renvoie **aussi les appareils non-robots** du compte (lave-linge, Dyad, Zeo) ; la lib lève `UnsupportedDeviceError` sur un `pv` V1 de catégorie non-VACUUM |
+| le produit est **résolu** dans `home.product_map` | `HomeData` | un `product_id` inconnu ne donne ni modèle ni catégorie |
+
+Sans la 2ᵉ condition, on créerait des commandes pour un appareil que la lib **refusera d'instancier** —
+exactement l'« équipement fantôme » que la règle ci-dessus cherche à éviter.
+
+⚠️ **Ne pas utiliser `HomeData.device_products`** pour cette résolution : elle **écarte
+silencieusement** tout appareil dont le `product_id` est absent de `product_map`. Itérer
+`get_all_devices()` et résoudre soi-même via `product_map.get(...)`, pour pouvoir **signaler**
+l'appareil au lieu de le perdre.
+
+⚠️ **Indicateur « robot partagé » : c'est l'appartenance à `home.received_devices`, PAS le champ
+`HomeDataDevice.share`.** Les champs `share`/`share_time`/`share_type`/`share_expired_time` existent dans
+le dataclass mais ne sont **lus nulle part** dans la librairie (`containers.py`, `web_api.py`,
+`device_manager.py`) : leur sémantique (booléen ? horodatage ? identifiant ?) n'est corroborée par
+aucune source. Ne pas y basculer sans preuve empirique.
 
 ## 2. Commandes du socle MVP
 
