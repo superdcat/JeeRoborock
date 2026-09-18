@@ -124,3 +124,44 @@ $('#bt_jeeroborockRafraichirEtat').on('click', function () {
     }
   })
 })
+
+/* UC09 : bouton "Synchroniser les usages" de la barre de gestion de l'équipement.
+Fichier RENDU (translate::exec) : aucune double accolade ouvrante littérale hors clé
+i18n, et littérales traduisibles en apostrophes simples. timeout 30000 : divergence
+INTENTIONNELLE par rapport au calque ci-dessus (budget serveur TIMEOUT_ROUTINES_SYNC =
+20 s, pas 35 s comme rafraichirEtat - ne pas copier 50000 par réflexe). */
+var jeeroborockVerrouUsages = false
+$('#bt_jeeroborockSynchroniserUsages').on('click', function () {
+  if (jeeroborockVerrouUsages) {
+    return
+  }
+  var eqLogicId = $('.eqLogicAttr[data-l1key=id]').value()
+  if (!isset(eqLogicId) || eqLogicId == '') {
+    $('#div_alert').showAlert({ message: '{{Sélectionnez un robot avant de synchroniser ses usages.}}', level: 'danger' })
+    return
+  }
+  jeeroborockVerrouUsages = true
+  $('#bt_jeeroborockSynchroniserUsages').addClass('disabled')
+  $('#div_alert').showAlert({ message: '{{Synchronisation des usages en cours…}}', level: 'info' })
+  $.ajax({
+    type: 'POST',
+    url: 'plugins/jeeroborock/core/ajax/jeeroborock.ajax.php',
+    data: { action: 'synchroniserRoutines', id: eqLogicId },
+    dataType: 'json',
+    timeout: 30000,
+    error: function () {
+      $('#div_alert').showAlert({ message: '{{Le démon ne répond pas.}}', level: 'danger' })
+    },
+    success: function (data) {
+      if (data.state != 'ok') {
+        $('#div_alert').showAlert({ message: data.result, level: 'danger' })
+        return
+      }
+      $('#div_alert').showAlert({ message: data.result.message, level: 'success' })
+    },
+    complete: function () {
+      jeeroborockVerrouUsages = false
+      $('#bt_jeeroborockSynchroniserUsages').removeClass('disabled')
+    }
+  })
+})

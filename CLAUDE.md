@@ -152,7 +152,10 @@ Disposition Jeedom fixe (type MVC), nommée d'après l'id `jeeroborock`.
   rejointes en UC05 par `etatCompte`), UC06 **`equipements.py`** (`decouvrirEquipements`) et UC07
   **`robots.py`** (`lireEtat`, rejointe en UC08 par `envoyerCommande` — liste blanche **fermée** de
   5 actions V1) + **`libelles.py`** (tables de libellés FR des états et erreurs, pures
-  données, aucune opération enregistrée) :
+  données, aucune opération enregistrée). UC09 a posé **`routines.py`** (`listerRoutines`,
+  `executerRoutine` — chemin HTTPS pur, cf. ci-dessous) et **`textes.py`** (neutralisation et troncature
+  des chaînes d'origine cloud, factorisée depuis `equipements.py`/`robots.py` à la 3ᵉ occurrence :
+  **tout nouveau module qui journalise ou renvoie une chaîne venue du cloud l'importe de là**) :
   **un module par domaine fonctionnel**, enregistré explicitement depuis
   `jeeroborockd.py` — pas par effet de bord d'import. L'instance `RoborockApiClient` vit dans
   `contexte['auth']` et **doit** survivre entre l'envoi du code et sa validation (`header_clientid` dérive
@@ -161,9 +164,16 @@ Disposition Jeedom fixe (type MVC), nommée d'après l'id `jeeroborock`.
   première lecture et mémorisé dans `contexte['gestionnaire']` (avec une empreinte de session qui le fait
   reconstruire quand le `userData` change). ⚠️ Il porte le `HomeData` complet, **donc les `local_key`** :
   ne jamais le sérialiser ni le journaliser. ⚠️ Le construire coûte un appel **`homedata`** (quota dur) —
-  **toute UC suivante qui a besoin du robot passe par `robots.obtenir_appareil()`** et ne rappelle
+  **toute UC qui a besoin du canal V1 passe par `robots.obtenir_appareil()`** et ne rappelle
   **jamais** `create_device_manager()`, sous peine de doubler la consommation de quota et d'ouvrir une
-  seconde session MQTT sur le même compte. UC08 a protégé la **construction** par un verrou asyncio
+  seconde session MQTT sur le même compte.
+  ⚠️ **Mais toutes les UC n'ont pas besoin de ce canal.** Les **routines** (UC09) s'exécutent par un
+  **POST HTTPS signé**, sur un chemin **volontairement disjoint** : `routines.py` n'importe pas `robots.py`
+  et ne touche jamais `contexte['gestionnaire']`. C'est ce qui les rend exécutables **robot hors ligne** —
+  le cloud relaie l'ordre — et ce qui les garde **quota-neutres**. Le trait `device.v1_properties.routines`
+  de la librairie est un leurre : wrapper sans apport sur `get_scenes`/`execute_scene`, il imposerait de
+  construire le gestionnaire (décision **D-09-1**). Règle générale : avant d'appeler `obtenir_appareil()`,
+  vérifier que l'opération a réellement besoin du **robot**, et pas seulement du **compte**. UC08 a protégé la **construction** par un verrou asyncio
   (`_VERROU_GESTIONNAIRE`, double-checked locking — le chemin rapide mémorisé reste hors verrou) :
   depuis que 6 boutons de dashboard et les scénarios peuvent déclencher un appel, deux appels
   concurrents sur un contexte vide construiraient deux gestionnaires, donc **deux `homedata`**.

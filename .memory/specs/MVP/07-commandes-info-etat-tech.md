@@ -437,9 +437,10 @@ async def lire_etat(parametres, contexte) -> dict
 #   les exceptions python-roborock de la CONSTRUCTION remontent telles quelles a handler_rpc
 #   (point de mapping unique) : RoborockRateLimit -> RATE_LIMIT, InvalidCredentials -> AUTH_EXPIRED
 
-async def obtenir_appareil(parametres, contexte)   # -> RoborockDevice ; POINT D'EXTENSION UC08/UC09
+async def obtenir_appareil(parametres, contexte)   # -> RoborockDevice ; POINT D'EXTENSION canal V1
 #   decode la session, obtient/construit le gestionnaire, resout le duid.
-#   UC08 (actions) et UC09 (routines) appellent CETTE fonction, jamais create_device_manager.
+#   UC08 (actions) appelle CETTE fonction, jamais create_device_manager.
+#   /!\ UC09 (routines) ne passe PAS par ici : chemin HTTPS pur, cf. R-14 corrige.
 
 async def _gestionnaire(parametres, contexte)      # -> DeviceManager ; memorise + empreinte (D-07-2)
 async def _construire(user_data, base_url, email)  # -> DeviceManager ; wait_for(DELAI_CONSTRUCTION_S)
@@ -791,10 +792,17 @@ jetons stables**.
   tranché.
 - **R-13 — `desktop/php/jeeroborock.php` est en tabulations + CRLF**, seule exception du dépôt. Un bloc
   inséré en 2 espaces produit un fichier mixte.
-- **R-14 — contrainte sur l'avenir (UC08/UC09).** `robots.obtenir_appareil()` est le point d'extension :
-  UC08 (actions) et UC09 (routines, qui passent par `device.v1_properties.routines` donc par le **même**
-  gestionnaire) doivent l'appeler et **jamais** reconstruire un `DeviceManager`. Une seconde construction
-  doublerait la consommation de quota et ouvrirait une seconde session MQTT sur le même compte.
+- **R-14 — contrainte sur l'avenir (toute UC pilotant le robot par le canal V1).**
+  `robots.obtenir_appareil()` est le point d'extension : ces UC (UC08, actions) doivent l'appeler et
+  **jamais** reconstruire un `DeviceManager`. Une seconde construction doublerait la consommation de quota
+  et ouvrirait une seconde session MQTT sur le même compte.
+  > ⚠️ **CORRIGÉ par UC09 (D-09-1), 2026-09-18.** Cette ligne affirmait initialement que **les routines**
+  > passent par `device.v1_properties.routines`, donc par le même gestionnaire. **C'est faux** : vérifié sur
+  > la source de `python-roborock` 7.8.0, `RoutinesTrait` n'est qu'un wrapper de
+  > `RoborockApiClient.get_scenes`/`execute_scene` (aucun apport), et y accéder imposerait de construire le
+  > `DeviceManager` — soit **1 `homedata` (quota dur) + 1 session MQTT**, ce qui casserait l'indépendance au
+  > canal robot exigée par UC09 (AC7). Les routines empruntent un **chemin HTTPS pur** dans
+  > `resources/demond/routines.py`, strictement disjoint de `robots.py`. Cf. `09-routines-usages-tech.md`.
 - **R-15 — duplication consciente de `_texte()`** entre `equipements.py` et `robots.py` (4 lignes, corps
   identique). Conséquence assumée du refus de toucher un fichier livré pour un gain nul. **À factoriser
   dans un module utilitaire commun au prochain cycle qui modifie déjà `equipements.py` pour d'autres

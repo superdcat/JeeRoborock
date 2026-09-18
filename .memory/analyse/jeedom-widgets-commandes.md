@@ -170,3 +170,43 @@ un fichier JavaScript de plugin **passe bien par le moteur i18n** :
 
 ⚠️ `.claude/scripts/verif-plugin.py` **ne contrôle pas** le délimiteur dans les `.js` (son contrôle porte
 sur `configuration.txt`) : relecture manuelle.
+
+## 9. ⚠️ `dontRemoveCmd()` rend l'icône « supprimer » INERTE (vérifié contre le core, UC09)
+
+Un plugin qui redéfinit `dontRemoveCmd()` par un `return true;` inconditionnel sur sa classe `<id>Cmd`
+protège ses commandes d'une suppression accidentelle — c'est l'usage recherché quand les commandes sont
+**dérivées** d'une source externe (découverte, synchronisation) et référencées dans des scénarios.
+
+**Contrepartie rarement anticipée** : c'est le **seul** chemin de suppression d'une commande depuis la page
+équipement. `core/ajax/eqLogic.ajax.php` boucle sur les commandes existantes et ne supprime que celles qui
+sont absentes du formulaire posté **et** dont `dontRemoveCmd()` est faux :
+
+```php
+if (!isset($enableList[$dbObject->getId()]) && !$dbObject->dontRemoveCmd()) { $dbObject->remove(); }
+```
+
+Conséquence concrète : l'utilisateur clique l'icône « supprimer », la ligne disparaît de l'écran, il
+sauvegarde… et la commande **réapparaît**. Aucun message, aucune erreur — juste un geste sans effet.
+
+**Parade** : rendre le verrou **conditionnel** plutôt qu'absolu, pour rouvrir la suppression exactement là
+où elle est légitime. UC09 (D-09-4) le fait sur les commandes de routine devenues obsolètes :
+
+```php
+public function dontRemoveCmd() {
+  if (strpos((string) $this->getLogicalId(), jeeroborock::PREFIXE_CMD_ROUTINE) === 0
+      && $this->getConfiguration('routineObsolete', 0) == 1) {
+    return false;   // deja morte cote source externe : l'utilisateur peut la supprimer
+  }
+  return true;      // vivante : intouchable
+}
+```
+
+Deux propriétés du core rendent ce motif fiable :
+- **`utils::a2o()` fusionne, il ne remplace pas** : il n'appelle `setConfiguration()` que pour les clés
+  **postées**. Une clé de configuration technique absente du formulaire de commande (ici `routineObsolete`)
+  **survit** à un « Sauvegarder » de la page équipement — le marqueur est donc persistant.
+- Le cœur **renumérote les `order`** à chaque sauvegarde d'équipement : un `setOrder()` posé par le plugin
+  n'est qu'une valeur initiale, jamais une garantie.
+
+⚠️ Ne pas confondre avec la protection contre la suppression de l'**équipement** : `dontRemoveCmd()` ne
+porte que sur les commandes.

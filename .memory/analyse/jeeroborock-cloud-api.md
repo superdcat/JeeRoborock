@@ -206,6 +206,18 @@ indisponible (le cloud relaie vers le robot).
 | Lister les routines d'un robot | `GET <rriot.r.a>/user/scene/device/<duid>` | `get_scenes(user_data, device_id)` / `UserWebApiClient.get_routines(duid)` / trait `v1_properties.routines.get_routines()` |
 | Exécuter une routine | `POST <rriot.r.a>/user/scene/<scene_id>/execute` | `execute_scene(user_data, scene_id)` / `execute_routine(scene_id)` |
 
+> ⚠️ **Ces trois chemins ne sont PAS équivalents — vérifié sur la source 7.8.0 (UC09, 2026-09-18).**
+> `UserWebApiClient` est un wrapper de `RoborockApiClient` (seul ajout : un `unauthorized_hook`) et le
+> trait `v1_properties.routines` un wrapper du wrapper (26 lignes, **zéro apport**). Mais **atteindre le
+> trait impose de construire le `DeviceManager`**, donc **1 `homedata` (quota dur) + 1 session MQTT** pour
+> un résultat identique — et cela fait perdre l'indépendance au canal robot qui est tout l'intérêt de ce
+> chemin. **Utiliser `RoborockApiClient.get_scenes`/`execute_scene` sur un client nu.** C'est la décision
+> D-09-1 ; les specs UC07 § R-14 et UC08 § R-12 affirmaient le contraire et portent un encart de correction.
+>
+> Deux propriétés à connaître : `get_scenes`/`execute_scene` n'ont **aucun limiteur** côté lib (pas de
+> `try_acquire`), et `execute_scene` **ne renvoie aucun état** (succès = absence d'exception) tout en
+> **n'exigeant pas le `duid`** — un `scene_id` d'un autre robot du même compte s'exécuterait.
+
 Réponse : `{"success": true, "result": [ … ]}`. Modèle exposé par la lib :
 
 ```

@@ -28,6 +28,8 @@ class jeeroborockDaemon {
   const TIMEOUT_DECOUVERTE   = 20;    // s, decouvrirEquipements (2 requetes HTTPS nominales)
   const TIMEOUT_ETAT         = 35;    // s, lireEtat (homedata + MQTT + get_status, cf. UC07 § Budget)
   const TIMEOUT_ACTION       = 35;    // s, envoyerCommande (demon borne a 30 s, cf. UC08 § Budget)
+  const TIMEOUT_ROUTINES_SYNC = 20;   // s, listerRoutines (demon borne a 15 s, cf. UC09 § Budget)
+  const TIMEOUT_ROUTINE_EXEC  = 20;   // s, executerRoutine (demon borne a 15 s, cf. UC09 § Budget)
   const TIMEOUT_MAX          = 60;    // s, plafond dur - garantit AC1 quel que soit l'appelant
   const TIMEOUT_CONNEXION_MS = 2000;  // ms, connexion loopback
   const MARGE_BUDGET_MS      = 1000;  // ms laissees au demon pour serialiser sa reponse
@@ -256,6 +258,11 @@ class jeeroborockDaemon {
       'UNSUPPORTED'              => __('Cette fonction n\'est pas disponible sur ce modèle de robot.', __FILE__),
       'UNSUPPORTED_COMMAND'      => __('Le robot ne reconnaît pas cette commande.', __FILE__),
       'ROBOROCK_ERROR'           => __('Erreur Roborock non identifiée. Consultez le log du démon.', __FILE__),
+
+      // Famille C - routines / usages (UC09)
+      'ROUTINE_OBSOLETE'      => __('Cet usage a été supprimé dans l\'application Roborock : supprimez cette commande ou relancez une synchronisation des usages.', __FILE__),
+      'ROUTINE_INTROUVABLE'   => __('Le cloud Roborock n\'a pas pu exécuter cet usage : il est peut-être introuvable ou obsolète. Relancez une synchronisation des usages.', __FILE__),
+      'ROUTINE_SYNC_RECENTE'  => __('Une synchronisation des usages vient d\'être effectuée : patientez une minute avant de relancer.', __FILE__),
     );
   }
 }

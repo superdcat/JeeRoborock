@@ -527,9 +527,14 @@ d'action (`retour_base`…) : **jetons stables**, jamais traduits, jamais affich
 - **R-11** — le canal V1 **tente toujours le TCP local** (R-10 d'UC07, non désactivable en 7.8.0) : une
   liaison locale instable peut consommer 10 s avant le repli MQTT. `DELAI_ENVOI_MAX_S = 22` est
   dimensionné pour **ne jamais couper ce repli** — sauf au premier appel post-démarrage (§ Budget).
-- **R-12** — contrainte pour **UC09** : les routines passent par `device.v1_properties.routines`, donc
-  par `robots.obtenir_appareil()`, et **profiteront du verrou** posé ici. **Ne pas ré-ouvrir un second
-  chemin de construction.**
+- **R-12** — ⚠️ **CORRIGÉ par UC09 (D-09-1), 2026-09-18.** Cette ligne annonçait que les routines
+  passeraient par `device.v1_properties.routines`, donc par `robots.obtenir_appareil()`, et
+  profiteraient du verrou posé ici. **C'est faux** : vérifié sur la source de `python-roborock` 7.8.0,
+  `RoutinesTrait` n'est qu'un wrapper de `RoborockApiClient.get_scenes`/`execute_scene`, et emprunter ce
+  chemin imposerait de construire le `DeviceManager` — soit **1 `homedata` (quota dur) + 1 session MQTT**,
+  cassant l'indépendance au canal robot exigée par UC09 (AC7). UC09 vit dans `resources/demond/routines.py`,
+  en **HTTPS pur**, et ne touche ni au gestionnaire ni à son verrou. La contrainte reste valable pour toute
+  UC qui pilote réellement le robot par le canal V1 : **ne pas ré-ouvrir un second chemin de construction.**
 - **R-13** — dette UC07 **inchangée, non aggravée** : `canal.py::handler_rpc` journalise toujours
   `exc_info=True` ; `_texte()` reste dupliqué entre `equipements.py` et `robots.py` (**pas de 3ᵉ
   occurrence créée**) ; `contexte['session']` reste construit inline par les 4 opérations d'origine

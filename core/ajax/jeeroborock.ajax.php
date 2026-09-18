@@ -222,6 +222,44 @@ try {
         : __('État rafraîchi.', __FILE__);
       ajax::success(array('message' => $message, 'cmdCreees' => intval($r['cmdCreees'])));
       break;
+    case 'synchroniserRoutines':
+      // Endpoint admin : l'action crée/modifie des commandes. Pas de garde
+      // getIsEnable() (contrairement à 'rafraichirEtat') : aucune valeur n'est écrite
+      // par checkAndUpdateCmd ici, cmd::save() fonctionne sur un équipement désactivé.
+      $eqLogic = eqLogic::byId(intval(init('id')));
+      if (!($eqLogic instanceof jeeroborock)) {
+        ajax::error(__('Équipement introuvable ou non géré par ce plugin.', __FILE__));
+        break;
+      }
+      $r = $eqLogic->synchroniserRoutines();
+
+      $phrases = array();
+      if ($r['creees'] + $r['misAJour'] > 0) {
+        $phrases[] = sprintf(__('Synchronisation des usages terminée : %1$s usage(s) créé(s), %2$s mis à jour.', __FILE__), $r['creees'], $r['misAJour']);
+      } elseif ($r['total'] == 0) {
+        $phrases[] = __('Aucun usage défini pour ce robot : créez-en un dans l\'application Roborock.', __FILE__);
+      }
+      if (!empty($r['obsoletes'])) {
+        $phrases[] = sprintf(__('Usage(s) devenu(s) obsolète(s) (supprimé(s) dans l\'application) : %s', __FILE__), implode(', ', array_slice($r['obsoletes'], 0, 5)) . (count($r['obsoletes']) > 5 ? '…' : ''));
+      }
+      if ($r['echecs'] > 0) {
+        $phrases[] = sprintf(__('%s usage(s) n\'ont pas pu être enregistrés dans Jeedom. Consultez le log du plugin.', __FILE__), $r['echecs']);
+      }
+      $message = implode(' ', $phrases);
+      if ($message == '') {
+        // Repli obligatoire : scènes reçues mais toutes rejetées côté démon -> les 4
+        // branches ci-dessus sont fausses, showAlert ne doit jamais afficher un toast vide.
+        $message = __('Synchronisation des usages terminée.', __FILE__);
+      }
+
+      ajax::success(array(
+        'message'   => $message,
+        'creees'    => $r['creees'],
+        'misAJour'  => $r['misAJour'],
+        'obsoletes' => count($r['obsoletes']),
+        'echecs'    => $r['echecs'],
+      ));
+      break;
     default:
       throw new Exception(__('Aucune méthode correspondante à', __FILE__) . ' : ' . init('action'));
   }

@@ -66,7 +66,9 @@
         "Localiser": "Localizar",
         "Rafraîchir": "Actualizar",
         "Commande « %s » transmise au robot.": "Comando «%s» enviado al robot.",
-        "État rafraîchi.": "Estado actualizado."
+        "État rafraîchi.": "Estado actualizado.",
+        "Usage Roborock %s": "Rutina Roborock %s",
+        "Usage « %s » lancé.": "Rutina «%s» iniciada."
     },
     "plugins/jeeroborock/core/class/jeeroborockDaemon.class.php": {
         "Erreur inattendue du démon. Consultez le log du plugin.": "Error inesperado del demonio. Consulte el registro del plugin.",
@@ -104,7 +106,10 @@
         "Le robot a signalé une erreur en exécutant la commande.": "El robot indicó un error al ejecutar el comando.",
         "Cette fonction n'est pas disponible sur ce modèle de robot.": "Esta función no está disponible en este modelo de robot.",
         "Le robot ne reconnaît pas cette commande.": "El robot no reconoce este comando.",
-        "Erreur Roborock non identifiée. Consultez le log du démon.": "Error de Roborock no identificado. Consulte el registro del demonio."
+        "Erreur Roborock non identifiée. Consultez le log du démon.": "Error de Roborock no identificado. Consulte el registro del demonio.",
+        "Cet usage a été supprimé dans l'application Roborock : supprimez cette commande ou relancez une synchronisation des usages.": "Esta rutina se ha eliminado en la aplicación Roborock: elimine este comando o vuelva a ejecutar una sincronización de rutinas.",
+        "Le cloud Roborock n'a pas pu exécuter cet usage : il est peut-être introuvable ou obsolète. Relancez une synchronisation des usages.": "La nube Roborock no pudo ejecutar esta rutina: puede que no se encuentre o esté obsoleta. Vuelva a ejecutar una sincronización de rutinas.",
+        "Une synchronisation des usages vient d'être effectuée : patientez une minute avant de relancer.": "Se acaba de realizar una sincronización de rutinas: espere un minuto antes de volver a intentarlo."
     },
     "plugins/jeeroborock/core/ajax/jeeroborock.ajax.php": {
         "401 - Accès non autorisé": "401 - Acceso no autorizado",
@@ -131,7 +136,12 @@
         "Équipement introuvable ou non géré par ce plugin.": "Dispositivo no encontrado o no gestionado por este plugin.",
         "Cet équipement est désactivé : activez-le avant de rafraîchir son état.": "Este dispositivo está desactivado: actívelo antes de actualizar su estado.",
         "État rafraîchi — %s nouvelle(s) commande(s) créée(s). Rechargez la page pour les voir.": "Estado actualizado — %s nuevo(s) comando(s) creado(s). Recargue la página para verlos.",
-        "État rafraîchi.": "Estado actualizado."
+        "État rafraîchi.": "Estado actualizado.",
+        "Synchronisation des usages terminée : %1$s usage(s) créé(s), %2$s mis à jour.": "Sincronización de rutinas completada: %1$s rutina(s) creada(s), %2$s actualizada(s).",
+        "Aucun usage défini pour ce robot : créez-en un dans l'application Roborock.": "No hay ninguna rutina definida para este robot: cree una en la aplicación Roborock.",
+        "Usage(s) devenu(s) obsolète(s) (supprimé(s) dans l'application) : %s": "Rutina(s) que han quedado obsoleta(s) (eliminada(s) en la aplicación): %s",
+        "%s usage(s) n'ont pas pu être enregistrés dans Jeedom. Consultez le log du plugin.": "%s rutina(s) no se pudieron registrar en Jeedom. Consulte el registro del plugin.",
+        "Synchronisation des usages terminée.": "Sincronización de rutinas completada."
     },
     "plugins/jeeroborock/desktop/php/jeeroborock.php": {
         "401 - Accès non autorisé": "401 - Acceso no autorizado",
@@ -172,7 +182,8 @@
         "Nom": "Nombre",
         "Type": "Tipo",
         "Etat": "Estado",
-        "Actions": "Acciones"
+        "Actions": "Acciones",
+        "Synchroniser les usages": "Sincronizar rutinas"
     },
     "plugins/jeeroborock/desktop/js/jeeroborock.js": {
         "Nom de la commande": "Nombre del comando",
@@ -189,6 +200,8 @@
         "Supprimer la commande": "Eliminar comando",
         "Sélectionnez un robot avant de rafraîchir.": "Seleccione un robot antes de actualizar.",
         "Rafraîchissement en cours…": "Actualizando…",
-        "Le démon ne répond pas.": "El demonio no responde."
+        "Le démon ne répond pas.": "El demonio no responde.",
+        "Sélectionnez un robot avant de synchroniser ses usages.": "Seleccione un robot antes de sincronizar sus rutinas.",
+        "Synchronisation des usages en cours…": "Sincronizando rutinas…"
     }
 }

@@ -55,6 +55,15 @@ class jeeroborock extends eqLogic {
   // ils transitent par le canal).
   const LONGUEUR_MAX_LIBELLE_ETAT = 128;
 
+  // Routines ("usages", UC09). Chemin HTTPS pur, disjoint du DeviceManager/MQTT (AC7).
+  const PREFIXE_CMD_ROUTINE          = 'routine_';
+  const NB_MAX_ROUTINES              = 64;
+  const LONGUEUR_MAX_NOM_ROUTINE     = 127;  // aligne sur la troncature de cmd::setName
+  const ORDRE_BASE_ROUTINES          = 30;   // info 0-11, reserve 12-19, actions 20-25
+  const DELAI_MIN_SYNCHRO_ROUTINES   = 60;   // s, garde anti-rafale (D-09-3)
+  const DUREE_CACHE_SYNCHRO_ROUTINES = 300;  // s, TTL de l'horodatage
+  const CLE_CACHE_SYNCHRO_ROUTINES   = 'jeeroborock::synchroRoutines::';
+
   // Attention : userData contient le jeton de session et les identifiants dérivés rriot.
   // Ne jamais définir preConfig_userData / postConfig_userData : une exception levée depuis
   // une frame qui reçoit ce paramètre exposerait le secret via displayException() (trace complète
@@ -1133,6 +1142,224 @@ class jeeroborock extends eqLogic {
     return $cmd;
   }
 
+  /*     * ***********************Routines / usages (UC09)********************* */
+
+  // Synchronise les routines ("usages") définies dans l'application mobile pour ce
+  // robot : un unique POST HTTPS signé Hawk, chemin STRICTEMENT DISJOINT du
+  // DeviceManager/MQTT (AC7). À appeler SOUS try/catch PAR ÉQUIPEMENT.
+  public function synchroniserRoutines() {
+    $duid = trim((string) $this->getLogicalId());
+    if (!self::duidValide($duid)) {
+      throw jeeroborockDaemon::erreurLocale('DEVICE_UNKNOWN');
+    }
+    if (!self::estCompteLie()) {
+      throw jeeroborockDaemon::erreurLocale('NOT_AUTHENTICATED');
+    }
+    if ($this->synchroRoutinesRecente()) {
+      throw jeeroborockDaemon::erreurLocale('ROUTINE_SYNC_RECENTE');
+    }
+
+    $r = jeeroborockDaemon::appeler(
+      'listerRoutines',
+      array('userData' => self::getUserData(), 'baseUrl' => self::getBaseUrlCompte(), 'email' => self::getEmailCompte(), 'duid' => $duid),
+      jeeroborockDaemon::TIMEOUT_ROUTINES_SYNC
+    );
+
+    $this->marquerSynchroRoutines();
+
+    $routines = (isset($r['routines']) && is_array($r['routines'])) ? array_slice($r['routines'], 0, self::NB_MAX_ROUTINES) : array();
+
+    $compteurs = $this->appliquerRoutines($routines);
+
+    log::add('jeeroborock', 'info', 'Synchronisation des usages : aucune consommation de quota homedata (chemin HTTPS disjoint, UC09) - ' . $compteurs['creees'] . ' créé(s), ' . $compteurs['misAJour'] . ' mis à jour, ' . $compteurs['echecs'] . ' échec(s), ' . count($compteurs['obsoletes']) . ' obsolète(s)');
+
+    $compteurs['total'] = isset($r['nbTotal']) ? intval($r['nbTotal']) : count($routines);
+
+    return $compteurs;
+  }
+
+  // Applique la liste des routines reçues du démon : convergence structurelle des
+  // commandes existantes, création des nouvelles, marquage obsolète de celles
+  // disparues (AC1/AC3/AC4/AC5). NE LÈVE JAMAIS.
+  private function appliquerRoutines($_routines) {
+    $creees = 0;
+    $misAJour = 0;
+    $echecs = 0;
+    $obsoletes = array();
+
+    // Ne PAS passer par $this->getCmd() (cache interne _cmds, mélangerait deux vues
+    // avec l'énumération fraîche des commandes de routine).
+    $existantes = array();
+    $cmdsAction = cmd::byEqLogicId($this->getId(), 'action');
+    if (is_array($cmdsAction)) {
+      foreach ($cmdsAction as $cmd) {
+        $logicalId = (string) $cmd->getLogicalId();
+        if (strpos($logicalId, self::PREFIXE_CMD_ROUTINE) !== 0) {
+          continue;
+        }
+        if (isset($existantes[$logicalId])) {
+          log::add('jeeroborock', 'warning', 'appliquerRoutines : logicalId dupliqué ignoré : ' . self::nettoyerPourLog($logicalId));
+          continue;
+        }
+        $existantes[$logicalId] = $cmd;
+      }
+    }
+
+    $rang = 0;
+    foreach ($_routines as $routine) {
+      $rang++;
+      try {
+        $idBrut = (is_array($routine) && isset($routine['id'])) ? $routine['id'] : null;
+        if (!is_array($routine) || !is_numeric($idBrut) || intval($idBrut) <= 0 || (string) intval($idBrut) !== trim((string) $idBrut)) {
+          $echecs++;
+          log::add('jeeroborock', 'warning', 'appliquerRoutines : identifiant de routine invalide : ' . self::nettoyerPourLog(substr((string) $idBrut, 0, 64)));
+          continue;
+        }
+
+        $id = intval($routine['id']);
+        $logicalId = self::PREFIXE_CMD_ROUTINE . $id;
+        $nom = self::texteInventaire(isset($routine['nom']) ? $routine['nom'] : '', self::LONGUEUR_MAX_NOM_ROUTINE);
+
+        if (isset($existantes[$logicalId])) {
+          $cmd = $existantes[$logicalId];
+          $cmd->setConfiguration('routineObsolete', 0);
+
+          // AC3 sous garde de personnalisation : on ne réécrit le nom que s'il n'a
+          // jamais été personnalisé dans Jeedom (comparaison à la valeur RELUE, donc
+          // déjà passée par cleanComponanteName).
+          if ($cmd->getConfiguration('nomRoutine', '') === '' || $cmd->getConfiguration('nomRoutine', '') === $cmd->getName()) {
+            $cmd->setName($nom);
+          }
+          $cmd->setConfiguration('nomRoutine', $cmd->getName());
+
+          $cmd->setType('action');
+          $cmd->setSubType('other');
+          $cmd->save();
+
+          $misAJour++;
+          unset($existantes[$logicalId]);
+        } else {
+          $cmd = new jeeroborockCmd();
+          $cmd->setEqLogic_id($this->getId());
+          $cmd->setEqType('jeeroborock');
+          $cmd->setLogicalId($logicalId);
+          $cmd->setName($nom);
+          if ($cmd->getName() == '') {
+            $cmd->setName(sprintf(__('Usage Roborock %s', __FILE__), $id));
+          }
+          $cmd->setType('action');
+          $cmd->setSubType('other');
+          $cmd->setIsVisible(1);
+          $cmd->setOrder(self::ORDRE_BASE_ROUTINES + $rang);
+          $cmd->setConfiguration('routineObsolete', 0);
+          $cmd->setConfiguration('nomRoutine', $cmd->getName());
+          // Pas de setValue() (isAlreadyInStateAllow ferait sauter l'exécution), pas
+          // de setTemplate() (le cœur pose core::default), pas de setGeneric_type(),
+          // pas de setIsHistorized().
+          $cmd->save();
+
+          $creees++;
+        }
+      } catch (Throwable $e) {
+        $echecs++;
+        log::add('jeeroborock', 'error', 'appliquerRoutines : échec sur une routine : ' . self::nettoyerPourLog(substr($e->getMessage(), 0, 256)));
+      }
+    }
+
+    // AC4 : toute commande de routine restante n'a pas été confirmée par le démon ->
+    // marquée obsolète (jamais supprimée automatiquement).
+    foreach ($existantes as $cmd) {
+      try {
+        if ($cmd->getConfiguration('routineObsolete', 0) != 1) {
+          $cmd->setConfiguration('routineObsolete', 1);
+          $cmd->save();
+          $obsoletes[] = $cmd->getName();
+          log::add('jeeroborock', 'warning', 'appliquerRoutines : usage marqué obsolète : ' . self::nettoyerPourLog($cmd->getName()));
+        }
+      } catch (Throwable $e) {
+        $echecs++;
+        log::add('jeeroborock', 'error', 'appliquerRoutines : échec de marquage obsolète : ' . self::nettoyerPourLog(substr($e->getMessage(), 0, 256)));
+      }
+    }
+
+    return array('creees' => $creees, 'misAJour' => $misAJour, 'echecs' => $echecs, 'obsoletes' => $obsoletes);
+  }
+
+  // Exécute une routine ("usage") sur ce robot, via le cloud HTTPS pur (AC2, AC7).
+  // Retourne le message FRANÇAIS de succès (scalaire).
+  public function executerRoutine($_cmd) {
+    $duid = trim((string) $this->getLogicalId());
+    if (!self::duidValide($duid)) {
+      throw jeeroborockDaemon::erreurLocale('DEVICE_UNKNOWN');
+    }
+    if (!self::estCompteLie()) {
+      throw jeeroborockDaemon::erreurLocale('NOT_AUTHENTICATED');
+    }
+    if ($_cmd->getConfiguration('routineObsolete', 0) == 1) {
+      // AVANT tout appel démon : chemin déterministe d'AC4, zéro requête HTTPS.
+      throw jeeroborockDaemon::erreurLocale('ROUTINE_OBSOLETE');
+    }
+
+    $sceneId = self::sceneIdDepuisLogicalId($_cmd->getLogicalId());
+    if ($sceneId === null) {
+      log::add('jeeroborock', 'warning', 'executerRoutine : logicalId de routine non conforme : ' . self::nettoyerPourLog((string) $_cmd->getLogicalId()));
+      throw jeeroborockDaemon::erreurLocale('UNSUPPORTED_COMMAND');
+    }
+
+    try {
+      jeeroborockDaemon::appeler(
+        'executerRoutine',
+        array('userData' => self::getUserData(), 'baseUrl' => self::getBaseUrlCompte(), 'email' => self::getEmailCompte(), 'duid' => $duid, 'sceneId' => $sceneId),
+        jeeroborockDaemon::TIMEOUT_ROUTINE_EXEC
+      );
+    } catch (jeeroborockException $e) {
+      // Aucun effet de bord : un refus cloud transitoire ne doit jamais marquer la
+      // commande obsolète, seule la synchronisation (vue complète et autoritaire) le fait.
+      log::add('jeeroborock', 'warning', 'executerRoutine : échec pour la commande ' . $_cmd->getId() . ' : ' . $e->getMessage());
+      throw $e;
+    }
+
+    log::add('jeeroborock', 'info', 'Usage (scène ' . $sceneId . ') lancé pour l\'équipement ' . $this->getId());
+
+    return sprintf(__('Usage « %s » lancé.', __FILE__), $_cmd->getName());
+  }
+
+  // Dérive le sceneId d'un logicalId de commande de routine. Ancres \A/\z (jamais
+  // ^/$, cf. rappel UC03 sur la forge de ligne de log). Retourne null si le format
+  // n'est pas conforme.
+  private static function sceneIdDepuisLogicalId($_logicalId) {
+    if (preg_match('/\Aroutine_([1-9][0-9]{0,17})\z/', (string) $_logicalId, $correspondances) !== 1) {
+      return null;
+    }
+    return intval($correspondances[1]);
+  }
+
+  // Garde anti-rafale (D-09-3) : true si une synchronisation a réussi il y a moins de
+  // DELAI_MIN_SYNCHRO_ROUTINES secondes pour CET équipement. NE LÈVE JAMAIS : un
+  // incident de cache dégrade la garde, il ne casse pas la synchro.
+  private function synchroRoutinesRecente() {
+    try {
+      $horodatage = cache::byKey(self::CLE_CACHE_SYNCHRO_ROUTINES . $this->getId())->getValue('');
+      if ($horodatage === '' || !is_numeric($horodatage)) {
+        return false;
+      }
+      return (time() - intval($horodatage)) < self::DELAI_MIN_SYNCHRO_ROUTINES;
+    } catch (Throwable $e) {
+      log::add('jeeroborock', 'warning', 'synchroRoutinesRecente : échec de lecture du cache : ' . $e->getMessage());
+      return false;
+    }
+  }
+
+  // Écrit l'horodatage de la garde anti-rafale. Écrit APRÈS succès de l'appel démon
+  // (un échec local ne doit pas imposer une minute d'attente). NE LÈVE JAMAIS.
+  private function marquerSynchroRoutines() {
+    try {
+      cache::set(self::CLE_CACHE_SYNCHRO_ROUTINES . $this->getId(), time(), self::DUREE_CACHE_SYNCHRO_ROUTINES);
+    } catch (Throwable $e) {
+      log::add('jeeroborock', 'warning', 'marquerSynchroRoutines : échec de mise en cache : ' . $e->getMessage());
+    }
+  }
+
   /*
   * Permet de crypter/décrypter automatiquement des champs de configuration des équipements
   * Exemple avec le champ "Mot de passe" (password)
@@ -1170,7 +1397,14 @@ class jeeroborockCmd extends cmd {
   // rafraîchissement détruirait silencieusement des commandes référencées par des
   // scénarios, avec leur historique. Contrepartie assumée : l'icône "supprimer" d'une
   // commande devient sans effet.
+  //
+  // D-09-4 (UC09) : une commande de routine MARQUÉE OBSOLÈTE redevient supprimable
+  // par le chemin standard du cœur, ce qu'AC4 exige. Toute autre commande reste
+  // protégée (règle ci-dessus inchangée).
   public function dontRemoveCmd() {
+    if (strpos((string) $this->getLogicalId(), jeeroborock::PREFIXE_CMD_ROUTINE) === 0 && $this->getConfiguration('routineObsolete', 0) == 1) {
+      return false;
+    }
     return true;
   }
 
@@ -1191,6 +1425,13 @@ class jeeroborockCmd extends cmd {
     }
 
     $eqLogic = $this->getEqLogic();
+
+    // UC09 : une commande de routine ("usage") route vers executerRoutine(), AVANT le
+    // switch. Sans ce test, un logicalId routine_* tomberait dans le "default" ->
+    // executerAction() -> UNSUPPORTED_COMMAND, un message faux.
+    if (strpos((string) $this->getLogicalId(), jeeroborock::PREFIXE_CMD_ROUTINE) === 0) {
+      return $eqLogic->executerRoutine($this);
+    }
 
     switch ($this->getLogicalId()) {
       case 'rafraichir':

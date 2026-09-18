@@ -28,10 +28,18 @@
 # userData recu), sans toucher a authentification.py : le PHP reste la source de verite
 # de la session (D-05-8).
 #
-# obtenir_appareil() est le POINT D'EXTENSION d'UC08 (actions) et d'UC09 (routines,
-# via device.v1_properties.routines) : ces UC doivent l'appeler et ne JAMAIS
-# reconstruire un DeviceManager elles-memes (R-14) - une seconde construction
-# doublerait la consommation de quota et ouvrirait une seconde session MQTT.
+# obtenir_appareil() est le POINT D'EXTENSION de toute UC qui pilote le robot par le
+# canal V1 (UC08, actions) : ces UC doivent l'appeler et ne JAMAIS reconstruire un
+# DeviceManager elles-memes (R-14) - une seconde construction doublerait la
+# consommation de quota et ouvrirait une seconde session MQTT.
+#
+# CORRECTION UC09 (D-09-1) : contrairement a ce qu'annoncait R-14, les ROUTINES ne
+# passent PAS par ici. Verifie sur la source de python-roborock 7.8.0 : le trait
+# device.v1_properties.routines n'est qu'un wrapper de RoborockApiClient.get_scenes /
+# execute_scene, donc sans aucun apport, et y acceder imposerait de construire le
+# DeviceManager - soit 1 homedata (quota dur) + 1 session MQTT, ce qui casserait
+# l'independance au canal robot exigee par UC09. Voir routines.py : chemin HTTPS pur,
+# strictement disjoint de ce module.
 #
 # UC08 (commandes de pilotage de base) ajoute envoyer_commande() : liste blanche
 # FERMEE de 5 actions (ACTIONS), reclassement des erreurs d'envoi (_erreur_envoi) et
@@ -45,7 +53,6 @@
 import asyncio
 import hashlib
 import logging
-import re
 import time
 
 from roborock import RoborockCommand, StatusField, StatusV2
@@ -56,6 +63,7 @@ import canal
 import libelles
 import session
 from erreurs import ErreurDemon, code_pour_exception
+from textes import texte as _texte
 
 DELAI_CONSTRUCTION_S = 15
 DELAI_ATTENTE_CONNEXION_S = 3
@@ -86,8 +94,6 @@ ACTIONS = {
 # mobile de l'utilisateur) et deux sessions MQTT sur le meme compte.
 _VERROU_GESTIONNAIRE = asyncio.Lock()
 
-LONGUEUR_MAX_TEXTE = 128
-
 # Codes stables consideres comme "le robot n'a pas repondu" pendant la lecture de
 # l'etat (§ Budget de temps) : etatLu passe a False mais l'operation reste un SUCCES
 # (les indicateurs de connexion doivent toujours etre renvoyes, AC6). Toute autre
@@ -100,20 +106,6 @@ _MOTIFS_LECTURE_ECHOUEE = frozenset({
     "RETRY_EXHAUSTED",
     "DEVICE_BUSY",
 })
-
-_CARACTERES_CONTROLE = re.compile(r"[\x00-\x1f\x7f]")
-
-
-def _texte(valeur, longueur_max=LONGUEUR_MAX_TEXTE):
-    """'' si None ; str() ; neutralisation des caracteres de controle AVANT troncature,
-    pour empecher une injection de fausse ligne dans les logging.* de ce fichier.
-    PRIVE A CE MODULE : equipements.py porte sa PROPRE copie (duplication consciente,
-    cf. R-15 de la spec technique - ne rien importer d'un symbole prive d'un autre
-    module de domaine)."""
-    if valeur is None:
-        return ""
-    return _CARACTERES_CONTROLE.sub("", str(valeur))[:longueur_max]
-
 
 def _empreinte(user_data_brut):
     return hashlib.sha256(user_data_brut.encode("utf-8")).hexdigest()

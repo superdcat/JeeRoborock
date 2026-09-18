@@ -14,7 +14,14 @@
 > Deux analyses **génériques Jeedom** (vérifiées contre la source du core) sont réutilisables par tout
 > plugin ; les analyses préfixées **`jeeroborock-`** sont **propres à ce plugin** (intégration Roborock).
 >
-> **Dernière mise à jour** : 2026-09-18 (UC08 : `jeedom-widgets-commandes.md` § 4 **corrigé** — un
+> **Dernière mise à jour** : 2026-09-18 (UC09 : `jeedom-widgets-commandes.md` **§ 9 nouveau** —
+> `dontRemoveCmd()` rend l'icône « supprimer » d'une commande **inerte** (seul chemin de suppression :
+> `eqLogic.ajax.php`), parade = verrou conditionnel ; `utils::a2o()` **fusionne** la configuration, donc une
+> clé technique hors formulaire survit à une sauvegarde. `jeeroborock-cloud-api.md` § 5 **corrigé** — les
+> trois chemins d'accès aux routines ne sont **pas** équivalents : le trait `v1_properties.routines` impose
+> de construire le `DeviceManager`, soit 1 `homedata` (quota dur) + 1 session MQTT, pour **zéro** apport
+> sur `get_scenes`/`execute_scene` ; ces deux endpoints n'ont aucun limiteur et `execute_scene` ne renvoie
+> aucun état ni n'exige le `duid`. Avant : UC08 : `jeedom-widgets-commandes.md` § 4 **corrigé** — un
 > retour `array`/`object` de `cmd::execute()` est écrasé en chaîne vide par `formatValue()`, l'ancienne
 > rédaction laissait croire l'inverse ; `cmd.ajax.php` ne relâche pas le verrou de session et sort par
 > `displayException()` ; piège de la `value` sur une commande action (`isAlreadyInStateAllow`) ;
@@ -47,6 +54,7 @@
 | **Secret et trace d'exception sur le chemin d'une commande** : `cmd.ajax.php` sort par `displayException()` → `getTraceAsString()` dans le DOM en log `debug` global ⇒ jamais de secret en **argument scalaire** | `jeedom-widgets-commandes.md` § 4 |
 | Commande **action** sautée en silence (« succès » sans exécution) : piège de la `value` liée et d'`isAlreadyInStateAllow()` ; `numberTryWithoutSuccess` jamais incrémenté par le cœur | `jeedom-widgets-commandes.md` § 4 |
 | **Commande action PARAMÉTRÉE** (saisie utilisateur : subType `message`, valeur dans `$_options['message']`) | `jeedom-widgets-commandes.md` § 4 |
+| ⚠️ **L'icône « supprimer » d'une commande ne fait RIEN** (la commande réapparaît après « Sauvegarder », sans message) : `dontRemoveCmd()` renvoie `true` → rendre le verrou **conditionnel** ; `utils::a2o()` **fusionne** la configuration, une clé technique hors formulaire survit | `jeedom-widgets-commandes.md` § 9 |
 | Appliquer un **template de widget sans écraser** le choix utilisateur (« si vide ») | `jeedom-widgets-commandes.md` § 6 |
 | **CSP Jeedom bloque tout média/image EXTERNE** → proxy same-origin (ex. tuile carte) | `jeedom-widgets-commandes.md` § 7 |
 | Ajouter une **PAGE** au menu Jeedom (panel) ; toggle natif `displayDesktopPanel/Mobile` ; page non-admin | `jeedom-panel-page-menu.md` |

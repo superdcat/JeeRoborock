@@ -32,36 +32,22 @@
 # boucle bornee sur des objets deja en memoire. Aucun asyncio.to_thread necessaire.
 
 import logging
-import re
 
 import session
 from erreurs import ErreurDemon
+from textes import texte as _texte
 
 import canal
 
 PV_V1 = "1.0"
 CATEGORIE_VACUUM = "robot.vacuum.cleaner"
-LONGUEUR_MAX_TEXTE = 128
 LIMITE_APPAREILS = 64  # borne dure sur la taille des deux listes renvoyees
-
-_CARACTERES_CONTROLE = re.compile(r"[\x00-\x1f\x7f]")
 
 
 def _categorie(produit):
     """Tolere un enum, une chaine ou None, SANS importer RoborockCategory (regle D-h
     d'UC03 : aucun symbole de la lib importe pour du mapping)."""
     return str(getattr(produit.category, "value", produit.category) or "")
-
-
-def _texte(valeur, longueur_max=LONGUEUR_MAX_TEXTE):
-    """'' si None ; str() ; neutralisation des caracteres de controle (\\x00-\\x1F,
-    \\x7F) AVANT troncature, pour empecher une injection de fausse ligne dans les
-    logging.* de ce fichier (device.duid/device.pv sont d'origine cloud). Le PHP
-    re-neutralise en defense en profondeur (texteInventaire), ce n'est pas un doublon a
-    supprimer."""
-    if valeur is None:
-        return ""
-    return _CARACTERES_CONTROLE.sub("", str(valeur))[:longueur_max]
 
 
 def _decrire_robot(device, produit, partage):

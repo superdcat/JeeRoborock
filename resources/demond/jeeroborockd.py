@@ -40,6 +40,7 @@ from aiohttp import web
 import authentification
 import equipements
 import robots
+import routines
 from canal import construire_application
 from jeedom.jeedom import jeedom_com, jeedom_utils
 
@@ -151,6 +152,7 @@ async def principal_async(args):
     authentification.enregistrer_operations()
     equipements.enregistrer_operations()
     robots.enregistrer_operations()
+    routines.enregistrer_operations()
 
     application = construire_application(args.apikey, contexte)
     try:

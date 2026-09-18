@@ -62,6 +62,7 @@ $eqLogics = eqLogic::byType($plugin->getId());
 				<!-- Les balises <a></a> sont volontairement fermées à la ligne suivante pour éviter les espaces entre les boutons. Ne pas modifier -->
 				<a class="btn btn-sm btn-default eqLogicAction roundedLeft" data-action="configure"><i class="fas fa-cogs"></i><span class="hidden-xs"> {{Configuration avancée}}</span>
 				</a><a class="btn btn-sm btn-default" id="bt_jeeroborockRafraichirEtat"><i class="fas fa-sync"></i><span class="hidden-xs"> {{Rafraîchir l'état}}</span>
+				</a><a class="btn btn-sm btn-default" id="bt_jeeroborockSynchroniserUsages"><i class="fas fa-list-check"></i><span class="hidden-xs"> {{Synchroniser les usages}}</span>
 				</a><a class="btn btn-sm btn-default eqLogicAction" data-action="copy"><i class="fas fa-copy"></i><span class="hidden-xs"> {{Dupliquer}}</span>
 				</a><a class="btn btn-sm btn-success eqLogicAction" data-action="save"><i class="fas fa-check-circle"></i> {{Sauvegarder}}
 				</a><a class="btn btn-sm btn-danger eqLogicAction roundedRight" data-action="remove"><i class="fas fa-minus-circle"></i> {{Supprimer}}

@@ -66,7 +66,9 @@
         "Localiser": "Locate",
         "Rafraîchir": "Refresh",
         "Commande « %s » transmise au robot.": "Command \"%s\" sent to the robot.",
-        "État rafraîchi.": "Status refreshed."
+        "État rafraîchi.": "Status refreshed.",
+        "Usage Roborock %s": "Roborock routine %s",
+        "Usage « %s » lancé.": "Routine \"%s\" started."
     },
     "plugins/jeeroborock/core/class/jeeroborockDaemon.class.php": {
         "Erreur inattendue du démon. Consultez le log du plugin.": "Unexpected daemon error. Check the plugin log.",
@@ -104,7 +106,10 @@
         "Le robot a signalé une erreur en exécutant la commande.": "The robot reported an error while executing the command.",
         "Cette fonction n'est pas disponible sur ce modèle de robot.": "This feature is not available on this robot model.",
         "Le robot ne reconnaît pas cette commande.": "The robot does not recognize this command.",
-        "Erreur Roborock non identifiée. Consultez le log du démon.": "Unidentified Roborock error. Check the daemon log."
+        "Erreur Roborock non identifiée. Consultez le log du démon.": "Unidentified Roborock error. Check the daemon log.",
+        "Cet usage a été supprimé dans l'application Roborock : supprimez cette commande ou relancez une synchronisation des usages.": "This routine has been deleted in the Roborock app: delete this command or run a routine synchronization again.",
+        "Le cloud Roborock n'a pas pu exécuter cet usage : il est peut-être introuvable ou obsolète. Relancez une synchronisation des usages.": "The Roborock cloud could not run this routine: it may be missing or outdated. Run a routine synchronization again.",
+        "Une synchronisation des usages vient d'être effectuée : patientez une minute avant de relancer.": "A routine synchronization has just been performed: wait a minute before trying again."
     },
     "plugins/jeeroborock/core/ajax/jeeroborock.ajax.php": {
         "401 - Accès non autorisé": "401 - Unauthorized access",
@@ -131,7 +136,12 @@
         "Équipement introuvable ou non géré par ce plugin.": "Device not found or not managed by this plugin.",
         "Cet équipement est désactivé : activez-le avant de rafraîchir son état.": "This device is disabled: enable it before refreshing its status.",
         "État rafraîchi — %s nouvelle(s) commande(s) créée(s). Rechargez la page pour les voir.": "Status refreshed — %s new command(s) created. Reload the page to see them.",
-        "État rafraîchi.": "Status refreshed."
+        "État rafraîchi.": "Status refreshed.",
+        "Synchronisation des usages terminée : %1$s usage(s) créé(s), %2$s mis à jour.": "Routine synchronization complete: %1$s routine(s) created, %2$s updated.",
+        "Aucun usage défini pour ce robot : créez-en un dans l'application Roborock.": "No routine defined for this robot: create one in the Roborock app.",
+        "Usage(s) devenu(s) obsolète(s) (supprimé(s) dans l'application) : %s": "Routine(s) now outdated (deleted in the app): %s",
+        "%s usage(s) n'ont pas pu être enregistrés dans Jeedom. Consultez le log du plugin.": "%s routine(s) could not be saved in Jeedom. Check the plugin log.",
+        "Synchronisation des usages terminée.": "Routine synchronization complete."
     },
     "plugins/jeeroborock/desktop/php/jeeroborock.php": {
         "401 - Accès non autorisé": "401 - Unauthorized access",
@@ -172,7 +182,8 @@
         "Nom": "Name",
         "Type": "Type",
         "Etat": "Status",
-        "Actions": "Actions"
+        "Actions": "Actions",
+        "Synchroniser les usages": "Synchronize routines"
     },
     "plugins/jeeroborock/desktop/js/jeeroborock.js": {
         "Nom de la commande": "Command name",
@@ -189,6 +200,8 @@
         "Supprimer la commande": "Delete command",
         "Sélectionnez un robot avant de rafraîchir.": "Select a robot before refreshing.",
         "Rafraîchissement en cours…": "Refreshing…",
-        "Le démon ne répond pas.": "The daemon is not responding."
+        "Le démon ne répond pas.": "The daemon is not responding.",
+        "Sélectionnez un robot avant de synchroniser ses usages.": "Select a robot before synchronizing its routines.",
+        "Synchronisation des usages en cours…": "Synchronizing routines…"
     }
 }

@@ -66,7 +66,9 @@
         "Localiser": "Orten",
         "Rafraîchir": "Aktualisieren",
         "Commande « %s » transmise au robot.": "Befehl „%s“ an den Roboter übertragen.",
-        "État rafraîchi.": "Status aktualisiert."
+        "État rafraîchi.": "Status aktualisiert.",
+        "Usage Roborock %s": "Roborock-Routine %s",
+        "Usage « %s » lancé.": "Routine „%s“ gestartet."
     },
     "plugins/jeeroborock/core/class/jeeroborockDaemon.class.php": {
         "Erreur inattendue du démon. Consultez le log du plugin.": "Unerwarteter Daemon-Fehler. Prüfen Sie das Plugin-Log.",
@@ -104,7 +106,10 @@
         "Le robot a signalé une erreur en exécutant la commande.": "Der Roboter hat beim Ausführen des Befehls einen Fehler gemeldet.",
         "Cette fonction n'est pas disponible sur ce modèle de robot.": "Diese Funktion ist bei diesem Robotermodell nicht verfügbar.",
         "Le robot ne reconnaît pas cette commande.": "Der Roboter erkennt diesen Befehl nicht.",
-        "Erreur Roborock non identifiée. Consultez le log du démon.": "Nicht identifizierter Roborock-Fehler. Prüfen Sie das Daemon-Log."
+        "Erreur Roborock non identifiée. Consultez le log du démon.": "Nicht identifizierter Roborock-Fehler. Prüfen Sie das Daemon-Log.",
+        "Cet usage a été supprimé dans l'application Roborock : supprimez cette commande ou relancez une synchronisation des usages.": "Diese Routine wurde in der Roborock-App gelöscht: Löschen Sie diesen Befehl oder starten Sie erneut eine Routinen-Synchronisierung.",
+        "Le cloud Roborock n'a pas pu exécuter cet usage : il est peut-être introuvable ou obsolète. Relancez une synchronisation des usages.": "Die Roborock-Cloud konnte diese Routine nicht ausführen: Sie ist möglicherweise nicht auffindbar oder veraltet. Starten Sie erneut eine Routinen-Synchronisierung.",
+        "Une synchronisation des usages vient d'être effectuée : patientez une minute avant de relancer.": "Es wurde gerade eine Routinen-Synchronisierung durchgeführt: Warten Sie eine Minute, bevor Sie es erneut versuchen."
     },
     "plugins/jeeroborock/core/ajax/jeeroborock.ajax.php": {
         "401 - Accès non autorisé": "401 - Unbefugter Zugriff",
@@ -131,7 +136,12 @@
         "Équipement introuvable ou non géré par ce plugin.": "Gerät nicht gefunden oder wird nicht von diesem Plugin verwaltet.",
         "Cet équipement est désactivé : activez-le avant de rafraîchir son état.": "Dieses Gerät ist deaktiviert: Aktivieren Sie es, bevor Sie seinen Status aktualisieren.",
         "État rafraîchi — %s nouvelle(s) commande(s) créée(s). Rechargez la page pour les voir.": "Status aktualisiert — %s neue(r) Befehl(e) erstellt. Laden Sie die Seite neu, um sie zu sehen.",
-        "État rafraîchi.": "Status aktualisiert."
+        "État rafraîchi.": "Status aktualisiert.",
+        "Synchronisation des usages terminée : %1$s usage(s) créé(s), %2$s mis à jour.": "Routinen-Synchronisierung abgeschlossen: %1$s Routine(n) erstellt, %2$s aktualisiert.",
+        "Aucun usage défini pour ce robot : créez-en un dans l'application Roborock.": "Für diesen Roboter ist keine Routine definiert: Erstellen Sie eine in der Roborock-App.",
+        "Usage(s) devenu(s) obsolète(s) (supprimé(s) dans l'application) : %s": "Veraltete Routine(n) (in der App gelöscht): %s",
+        "%s usage(s) n'ont pas pu être enregistrés dans Jeedom. Consultez le log du plugin.": "%s Routine(n) konnten nicht in Jeedom gespeichert werden. Prüfen Sie das Plugin-Log.",
+        "Synchronisation des usages terminée.": "Routinen-Synchronisierung abgeschlossen."
     },
     "plugins/jeeroborock/desktop/php/jeeroborock.php": {
         "401 - Accès non autorisé": "401 - Unbefugter Zugriff",
@@ -172,7 +182,8 @@
         "Nom": "Name",
         "Type": "Typ",
         "Etat": "Status",
-        "Actions": "Aktionen"
+        "Actions": "Aktionen",
+        "Synchroniser les usages": "Routinen synchronisieren"
     },
     "plugins/jeeroborock/desktop/js/jeeroborock.js": {
         "Nom de la commande": "Name des Befehls",
@@ -189,6 +200,8 @@
         "Supprimer la commande": "Befehl löschen",
         "Sélectionnez un robot avant de rafraîchir.": "Wählen Sie einen Roboter aus, bevor Sie aktualisieren.",
         "Rafraîchissement en cours…": "Aktualisierung läuft…",
-        "Le démon ne répond pas.": "Der Daemon antwortet nicht."
+        "Le démon ne répond pas.": "Der Daemon antwortet nicht.",
+        "Sélectionnez un robot avant de synchroniser ses usages.": "Wählen Sie einen Roboter aus, bevor Sie dessen Routinen synchronisieren.",
+        "Synchronisation des usages en cours…": "Routinen werden synchronisiert…"
     }
 }
