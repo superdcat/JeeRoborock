@@ -1,0 +1,175 @@
+# This file is part of Jeedom.
+#
+# Jeedom is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# Jeedom is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with Jeedom. If not, see <http://www.gnu.org/licenses/>.
+#
+#
+# Authentification au cloud Roborock par code recu par e-mail (UC04).
+#
+# Trois operations exposees au canal : demander_code, valider_code, restaurer_session.
+# Les trois coroutines sont 100% async (aiohttp + limiteur async) : aucun
+# asyncio.to_thread n'est necessaire ici (R1 d'UC03 sans objet pour ce module).
+#
+# L'etat d'authentification en cours vit dans contexte['auth'] (forme
+# {'client': RoborockApiClient, 'email': str}), sans TTL : sa duree de vie est celle du
+# processus demon (D-04-2 de la spec technique). contexte['session'] porte la session
+# APRES succes ({'userData': str, 'baseUrl': str, 'email': str}).
+#
+# Import garde par try/except ImportError : le demon doit rester lancable meme sur un
+# venv partiellement installe (les operations retombent alors en INTERNAL_ERROR).
+
+import base64
+import json
+import re
+
+from erreurs import ErreurDemon
+
+try:
+    from roborock.data import UserData
+    from roborock.web_api import RoborockApiClient
+
+    _IMPORT_OK = True
+except ImportError:
+    UserData = None
+    RoborockApiClient = None
+    _IMPORT_OK = False
+
+import canal
+
+_RE_EMAIL_INTERDITS = re.compile(r"[\s\x00-\x1f\x7f]")
+_RE_CODE = re.compile(r"\A[A-Za-z0-9]{4,12}\Z")
+_LONGUEUR_MAX_EMAIL = 254
+
+
+def _email_valide(valeur):
+    """Defense en profondeur : le demon ne fait pas confiance au PHP. Le formulaire de
+    configuration a deja valide l'e-mail via FILTER_VALIDATE_EMAIL cote PHP."""
+    if not isinstance(valeur, str):
+        return False
+    if valeur == "" or len(valeur) > _LONGUEUR_MAX_EMAIL:
+        return False
+    if "@" not in valeur:
+        return False
+    if _RE_EMAIL_INTERDITS.search(valeur):
+        return False
+    return True
+
+
+def _client_pour(email, contexte):
+    """Reutilise l'instance RoborockApiClient si l'e-mail est identique a la demande en
+    cours (stabilise header_clientid entre deux demandes successives, D-04-2) ; en cree
+    une nouvelle sinon."""
+    auth = contexte.get("auth")
+    if auth is not None and auth.get("email") == email:
+        return auth["client"]
+    return RoborockApiClient(email)
+
+
+def _encoder_user_data(user_data):
+    """base64(JSON compact) du UserData COMPLET (aucun exclude) : D-04-4, fidelite
+    d'aller-retour et confinement du secret dans une valeur opaque."""
+    corps = json.dumps(user_data.as_dict(), separators=(",", ":"), ensure_ascii=True)
+    return base64.b64encode(corps.encode("utf-8")).decode("ascii")
+
+
+def _decoder_user_data(valeur):
+    """Decode un blob produit par _encoder_user_data. Leve ErreurDemon('AUTH_EXPIRED')
+    sur tout echec, y compris une session structurellement incomplete (R-7 : from_dict
+    ignore silencieusement les cles inconnues)."""
+    try:
+        corps = base64.b64decode(valeur, validate=True)
+        donnees = json.loads(corps.decode("utf-8"))
+        if not isinstance(donnees, dict):
+            raise ValueError("userData decode : pas un objet")
+        user_data = UserData.from_dict(donnees)
+        if not user_data or not user_data.token or not user_data.rriot or not user_data.rriot.r:
+            raise ValueError("userData decode : session incomplete")
+        return user_data
+    except Exception as erreur:
+        raise ErreurDemon("AUTH_EXPIRED") from erreur
+
+
+async def demander_code(parametres, contexte):
+    if not _IMPORT_OK:
+        raise ErreurDemon("INTERNAL_ERROR")
+
+    email = parametres.get("email")
+    if not _email_valide(email):
+        raise ErreurDemon("AUTH_EMAIL_INVALID")
+
+    client = _client_pour(email, contexte)
+    # Stocke AVANT le await : un OPERATION_TIMEOUT ou une erreur ne doit pas perdre
+    # l'instance alors que l'e-mail a peut-etre deja ete envoye (D-04-2/D-04-3).
+    contexte["auth"] = {"client": client, "email": email}
+
+    await client.request_code_v4()
+
+    return {"envoye": True}
+
+
+async def valider_code(parametres, contexte):
+    if not _IMPORT_OK:
+        raise ErreurDemon("INTERNAL_ERROR")
+
+    email = parametres.get("email")
+    code = parametres.get("code")
+    if not isinstance(code, str) or not _RE_CODE.match(code):
+        raise ErreurDemon("AUTH_CODE_INVALID")
+
+    auth = contexte.get("auth")
+    if auth is None or auth.get("email") != email:
+        raise ErreurDemon("AUTH_NO_PENDING_CODE")
+
+    client = auth["client"]
+    user_data = await client.code_login_v4(code)
+    base_url = await client.base_url
+
+    contexte["session"] = {
+        "userData": _encoder_user_data(user_data),
+        "baseUrl": str(base_url),
+        "email": email,
+    }
+    # Remis a None UNIQUEMENT en cas de succes : sur echec, l'utilisateur doit pouvoir
+    # corriger une faute de frappe dans le code sans redemander un nouveau code.
+    contexte["auth"] = None
+
+    return {"userData": contexte["session"]["userData"], "baseUrl": contexte["session"]["baseUrl"]}
+
+
+async def restaurer_session(parametres, contexte):
+    """Aucun appel reseau, aucun quota consomme (D-04-7) : ne fait que recharger l'etat
+    persiste par le PHP en RAM du demon. 'non authentifie' est un etat normal."""
+    if not _IMPORT_OK:
+        raise ErreurDemon("INTERNAL_ERROR")
+
+    user_data_brut = parametres.get("userData") or ""
+    base_url = parametres.get("baseUrl") or ""
+    email = parametres.get("email") or ""
+
+    if user_data_brut == "":
+        contexte["session"] = None
+        return {"authentifie": False}
+
+    user_data = _decoder_user_data(user_data_brut)
+    contexte["session"] = {
+        "userData": _encoder_user_data(user_data),
+        "baseUrl": str(base_url),
+        "email": email,
+    }
+    return {"authentifie": True}
+
+
+def enregistrer_operations():
+    canal.enregistrer("demanderCode", demander_code)
+    canal.enregistrer("validerCode", valider_code)
+    canal.enregistrer("restaurerSession", restaurer_session)

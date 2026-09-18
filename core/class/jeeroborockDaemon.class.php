@@ -22,6 +22,8 @@
 class jeeroborockDaemon {
   const TIMEOUT_DEFAUT       = 10;    // s, budget d'une operation courante
   const TIMEOUT_SANTE        = 3;     // s, /sante ne fait aucune I/O
+  const TIMEOUT_AUTH         = 25;    // s, demanderCode / validerCode (chaine 2 a 6 requetes HTTPS)
+  const TIMEOUT_SESSION      = 3;     // s, restaurerSession ne fait aucune I/O reseau
   const TIMEOUT_MAX          = 60;    // s, plafond dur - garantit AC1 quel que soit l'appelant
   const TIMEOUT_CONNEXION_MS = 2000;  // ms, connexion loopback
   const MARGE_BUDGET_MS      = 1000;  // ms laissees au demon pour serialiser sa reponse
@@ -207,6 +209,7 @@ class jeeroborockDaemon {
       'DEVICE_UNKNOWN'           => __('Robot inconnu du démon : relancez une synchronisation des équipements.', __FILE__),
       'DEVICE_OFFLINE'           => __('Le robot est hors ligne : il ne répond pas au cloud Roborock.', __FILE__),
       'AUTH_EXPIRED'             => __('Session Roborock expirée : une nouvelle authentification par code e-mail est nécessaire.', __FILE__),
+      'AUTH_NO_PENDING_CODE'     => __('Aucune demande de code en cours (le démon a peut-être redémarré) : demandez un nouveau code.', __FILE__),
       'AUTH_CODE_INVALID'        => __('Code de connexion invalide ou expiré.', __FILE__),
       'AUTH_CODE_TOO_FREQUENT'   => __('Trop de demandes de code de connexion : patientez quelques minutes avant de réessayer.', __FILE__),
       'AUTH_EMAIL_INVALID'       => __('L\'adresse e-mail du compte Roborock est invalide.', __FILE__),

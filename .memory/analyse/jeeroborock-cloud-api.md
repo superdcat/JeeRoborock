@@ -45,6 +45,29 @@ Erreurs typées : `2018` code invalide (`RoborockInvalidCode`), `3009` CGU non a
 `3039` compte inexistant, `2008` compte inexistant (envoi de code), `9002` trop de demandes de code
 (`RoborockTooFrequentCodeRequests`).
 
+#### ⚠️ Quatre pièges du flux de login, vérifiés dans `web_api.py` 7.8.0 (UC04, 2026-09-18)
+
+1. **Le limiteur de la lib est ASYMÉTRIQUE.** `request_code_v4()` prend un jeton
+   (`_login_limiter.try_acquire_async("login", blocking=True, timeout=1)` → `RoborockRateLimit` si aucun
+   jeton en 1 s), mais **`code_login_v4()` n'en prend AUCUN** — pas de `try_acquire_async` dans la
+   méthode, contrairement à `request_code*`/`pass_login`. Seul l'**envoi** du code est plafonné côté
+   client ; une rafale de validations ne consomme aucun jeton local mais peut déclencher un refus serveur.
+2. **Le limiteur est un attribut de CLASSE**, donc un compteur **par processus** : redémarrer le démon
+   remet le compteur local à zéro alors que le quota serveur (3/min, 10/h, **20/jour**) court toujours.
+   Rates : `1/s, 3/min, 10/h, 20/jour` (l. 52-66).
+3. **Une demande peut consommer DEUX jetons.** Sur code `3030`, `request_code_v4` retire la base courante,
+   invalide le cache régional et **se rappelle récursivement** (l. 263-266) — en reprenant un jeton.
+4. **Aucun timeout par requête.** `PreparedRequest.request()` (l. 796-819) ne passe **jamais** de
+   `timeout=` à `session.request`. Une base régionale en trou noir consomme donc tout le budget de
+   l'appelant dans le balayage `getUrlByEmail` (jusqu'à 4 POST séquentiels), et peut épuiser le budget
+   **sans qu'aucun code n'ait été envoyé**. Aucun réglage de la lib ne corrige cela : seul un budget
+   global côté appelant borne l'attente. (`session=None` ⇒ une `ClientSession` est créée **et fermée**
+   par requête, y compris sur annulation — donc pas de fuite de session.)
+
+⚠️ **La lib n'expose pas `__version__`** en 7.8.0 (`roborock/__init__.py` ; la version est statique dans
+`pyproject.toml`). Tout garde-fou de dérive de version doit passer par
+`importlib.metadata.version("python-roborock")`.
+
 ### 2.2 Flux mot de passe (secondaire, fragile)
 
 `pass_login(password)` → `POST /api/v1/login?username=&password=&needtwostepauth=false`.
@@ -69,6 +92,31 @@ loggé, jamais renvoyé dans une réponse AJAX.
 **À confirmer** : durée de validité. Aucun mécanisme de refresh n'existe dans la lib ni dans HA ; on
 détecte l'expiration par `RoborockInvalidCredentials` (code `2010` sur `getHomeDetail`) ou par un refus
 MQTT (`unauthorized_hook`).
+
+#### ⚠️ Sérialisation : tolérante au point d'être dangereuse (vérifié en UC04, 2026-09-18)
+
+`containers.py` l. 226-237 — `rriot` est **requis** (sans défaut) ; tous les autres champs de `UserData`
+sont optionnels.
+
+- **`as_dict()`** (l. 164-173) **camélise** les clés (`_camelize`) **et supprime toute valeur `None`**.
+  `tuya_device_state` → `tuyaDeviceState` ; `tokentype`/`rruid`/`countrycode`/`avatarurl` restent
+  inchangés (pas d'underscore à convertir).
+- **`from_dict()`** (l. 105-129) `_decamelize` chaque clé et **ignore SILENCIEUSEMENT toute clé inconnue**
+  (simple log `debug`), puis `cls(**result)`. Un dict sans `rriot` lève `TypeError`.
+- L'aller-retour `from_dict(as_dict())` est **fidèle** (vérifié clé par clé).
+
+**Le risque** : une montée de version de la lib qui **renommerait** un champ de `UserData` produirait une
+session **tronquée sans aucune erreur**. D'où la règle du plugin : après tout décodage, **contrôler
+explicitement** que `token`, `rriot` et `rriot.r` sont non vides. À revérifier à chaque changement de
+version.
+
+**Le corollaire côté PHP** : ne **jamais** persister ce dict en **JSON nu**. `config::byKey` applique
+`is_json($v, $v)` et relit donc toute valeur JSON-objet **en tableau PHP**
+(cf. `jeedom-config-plugin-defauts.md` § 3) ; au ré-encodage, un objet vide — `Reference` dont tous les
+champs sont `None`, supprimés par `as_dict()` — devient `array()` puis un **tableau** JSON, et
+`Reference.from_dict([])` retourne `None` : **`rriot.r` est perdu silencieusement**. Le plugin stocke donc
+le `UserData` en **`base64(JSON compact)` opaque**, ce qui garantit la fidélité de l'aller-retour *et*
+évite que le PHP manipule une structure navigable du secret.
 
 ## 3. Signature « Hawk » des endpoints IoT
 
@@ -227,8 +275,28 @@ l'application mobile : le libellé précis d'une erreur robot dépend du modèle
 | état démon, émis dès UC05 | `NOT_AUTHENTICATED` | Le compte Roborock n'est pas lié : authentifiez-vous depuis la configuration du plugin. |
 | état démon, émis dès UC07 | `DEVICE_UNKNOWN` | Robot inconnu du démon : relancez une synchronisation des équipements. |
 | état démon | `DEVICE_OFFLINE` | Le robot est hors ligne : il ne répond pas au cloud Roborock. |
-| `aiohttp.ClientError`, `OSError` | `CLOUD_UNREACHABLE` | *(idem § 8.1)* |
+| `aiohttp.ClientError`, `OSError` | `CLOUD_UNREACHABLE` | *(idem § 8.1)* — ⚠️ **inatteignable en direct via `web_api`**, cf. ci-dessous |
 | tout le reste | `INTERNAL_ERROR` | Erreur interne du démon. Consultez le log du démon. |
+
+⚠️ **Correction du mapping annoncé en UC03** (constatée en UC04, 2026-09-18). `PreparedRequest.request()`
+(`web_api.py` l. 815-816) fait :
+
+```python
+except (aiohttp.ClientError, TimeoutError, OSError) as err:
+    raise RoborockException(f"Network error contacting {_url}: {err}") from err
+```
+
+Une panne réseau ne remonte donc **jamais** comme `aiohttp.ClientError`/`OSError` : elle arrive en
+**`RoborockException` nue**, qui ne matche que la classe de base → `ROBOROCK_ERROR` (« Erreur Roborock non
+identifiée ») au lieu de `CLOUD_UNREACHABLE`. La ligne du tableau ci-dessus est donc **inatteignable
+telle quelle** pour tout appel passant par `web_api` ; « Jeedom n'a pas Internet » s'affichait comme une
+erreur non identifiée.
+
+**Parade retenue** (UC04, dans `erreurs.py`) : quand le parcours du MRO ne donne que `ROBOROCK_ERROR`
+**et** que `exc.__cause__` existe, résoudre la **cause** ; si elle donne un code autre que le code par
+défaut, l'utiliser. La fonction continue de ne jamais lever et de ne pas importer `roborock.exceptions`.
+**Règle générale à retenir** : cette lib enveloppe ses erreurs de transport avec `raise … from err` — un
+mapping par type d'exception doit **toujours** regarder `__cause__`.
 
 ### 8.3 Pour mémoire — codes du **canal** PHP↔démon (hors cloud Roborock)
 

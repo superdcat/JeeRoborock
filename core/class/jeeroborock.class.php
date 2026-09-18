@@ -34,6 +34,11 @@ class jeeroborock extends eqLogic {
   // Délai maximal (secondes) laissé au démon pour démarrer avant de considérer l'échec.
   const DELAI_DEMARRAGE_DEMON = 30;
 
+  // Garde-fou sur la valeur userData renvoyée par le démon (UC04). Aucun aller-retour
+  // légitime n'approche cette taille (UserData complet en base64 fait quelques centaines
+  // d'octets).
+  const LONGUEUR_MAX_USERDATA = 8192;
+
   // Attention : userData contient le jeton de session et les identifiants dérivés rriot.
   // Ne jamais définir preConfig_userData / postConfig_userData : une exception levée depuis
   // une frame qui reçoit ce paramètre exposerait le secret via displayException() (trace complète
@@ -43,16 +48,142 @@ class jeeroborock extends eqLogic {
   /*     * ***********************Methode static*************************** */
 
   // Adresse e-mail du compte Roborock. Chaîne vide autorisée (état initial). La casse n'est pas
-  // normalisée : la valeur entre dans le header_clientid du démon.
+  // normalisée à l'enregistrement (UC01 : elle entre dans le header_clientid du démon), mais
+  // n'entre pas non plus dans la comparaison de changement (UC04, cf. strcasecmp ci-dessous).
+  //
+  // UC04 : si l'adresse change réellement (hors casse) et qu'un compte est lié, la session est
+  // déliée. La validation précède toujours la déliaison : une faute de frappe ne doit jamais
+  // détruire une session fonctionnelle. Pas de court-circuit possible : 'email' n'a pas de valeur
+  // par défaut dans core/config/jeeroborock.config.ini.
   public static function preConfig_email($_value) {
-    $_value = trim($_value);
-    if ($_value == '') {
-      return $_value;
-    }
-    if (!filter_var($_value, FILTER_VALIDATE_EMAIL)) {
+    $valeur = trim((string) $_value);
+    $ancien = trim((string) config::byKey('email', 'jeeroborock', ''));
+
+    if ($valeur != '' && !filter_var($valeur, FILTER_VALIDATE_EMAIL)) {
       throw new Exception(__('L\'adresse e-mail du compte Roborock est invalide.', __FILE__));
     }
-    return $_value;
+
+    $aChange = (strcasecmp($valeur, $ancien) !== 0);
+    if ($aChange && self::estCompteLie()) {
+      self::oublierSession();
+    }
+
+    return $valeur;
+  }
+
+  /*     * ***********************Session Roborock (UC04)********************* */
+
+  // Source de vérité "compte lié" (D-04-8) : présence de la clé userData en configuration
+  // plugin. L'état runtime du démon (contexte['session']) en est un dérivé, jamais une source.
+  public static function estCompteLie() {
+    return self::getUserData() != '';
+  }
+
+  // Unique point de lecture du blob userData. Le garde is_string n'est pas cosmétique :
+  // config::byKey applique is_json($v, $v), qui convertirait en tableau PHP toute valeur
+  // décodable comme JSON - précisément ce que l'encodage base64 (D-04-4) empêche.
+  public static function getUserData() {
+    $valeur = config::byKey('userData', 'jeeroborock', '');
+    if (!is_string($valeur)) {
+      return '';
+    }
+    return $valeur;
+  }
+
+  public static function getBaseUrlCompte() {
+    $valeur = config::byKey('baseUrl', 'jeeroborock', '');
+    if (!is_string($valeur)) {
+      return '';
+    }
+    return $valeur;
+  }
+
+  // Persiste la session obtenue par jeeroborockDaemon::appeler('validerCode', ...). NE LEVE
+  // JAMAIS : cette méthode est la seule frame PHP qui détient le blob userData ; une exception
+  // levée depuis cette frame exposerait le secret via displayException() (arguments de frame).
+  public static function enregistrerSession($_donnees) {
+    if (!is_array($_donnees)) {
+      log::add('jeeroborock', 'error', 'enregistrerSession : réponse du démon invalide');
+      return false;
+    }
+    $userData = isset($_donnees['userData']) ? (string) $_donnees['userData'] : '';
+    $baseUrl = isset($_donnees['baseUrl']) ? (string) $_donnees['baseUrl'] : '';
+
+    $longueur = strlen($userData);
+    if ($longueur < 64 || $longueur > self::LONGUEUR_MAX_USERDATA || !preg_match('/\A[A-Za-z0-9+\/]+={0,2}\z/', $userData)) {
+      log::add('jeeroborock', 'error', 'enregistrerSession : userData reçu du démon non conforme');
+      return false;
+    }
+    if (!preg_match('/\Ahttps:\/\/[A-Za-z0-9.-]+\.roborock\.com\z/', $baseUrl)) {
+      // Dégradation silencieuse et sans conséquence : la découverte régionale la retrouvera.
+      $baseUrl = '';
+    }
+
+    try {
+      // baseUrl d'abord, userData ensuite : "compte lié" (estCompteLie()) ne devient vrai
+      // qu'au tout dernier enregistrement.
+      config::save('baseUrl', $baseUrl, 'jeeroborock');
+      config::save('userData', $userData, 'jeeroborock');
+      return true;
+    } catch (Throwable $e) {
+      log::add('jeeroborock', 'error', 'enregistrerSession : échec de persistance, consultez la configuration du plugin');
+      return false;
+    }
+  }
+
+  // Délie la session : vide userData/baseUrl en configuration, prévient l'utilisateur, et
+  // demande au démon d'oublier sa session en RAM. NE LEVE JAMAIS.
+  //
+  // Piège générique Jeedom (R-8 de la spec technique) : core/ajax/config.ajax.php n'appelle
+  // JAMAIS session_write_close() avant d'invoquer les hooks preConfig_<clé> - le verrou de
+  // session PHP est donc tenu ici. Sans le relâcher nous-mêmes, tout appel au démon fige
+  // l'interface Jeedom pendant sa durée. Même précaution déjà en place dans deamon_start().
+  private static function oublierSession() {
+    try {
+      config::save('userData', '', 'jeeroborock');
+      config::save('baseUrl', '', 'jeeroborock');
+    } catch (Throwable $e) {
+      log::add('jeeroborock', 'error', 'oublierSession : échec de persistance : ' . $e->getMessage());
+    }
+
+    log::add('jeeroborock', 'info', 'Compte Roborock délié (e-mail modifié)');
+    message::removeAll('jeeroborock', 'session_deliee');
+    message::add(
+      'jeeroborock',
+      __('L\'adresse e-mail du compte Roborock a changé : le compte a été délié, demandez un nouveau code de connexion.', __FILE__),
+      '',
+      'session_deliee'
+    );
+
+    if (session_status() === PHP_SESSION_ACTIVE) {
+      session_write_close();
+    }
+
+    try {
+      jeeroborockDaemon::appeler('restaurerSession', array('userData' => '', 'baseUrl' => '', 'email' => ''), jeeroborockDaemon::TIMEOUT_SESSION);
+    } catch (Throwable $e) {
+      log::add('jeeroborock', 'warning', 'oublierSession : le démon n\'a pas pu être notifié : ' . $e->getMessage());
+    }
+  }
+
+  // Repousse au démon la session persistée en configuration plugin (D-04-5) : point de
+  // passage UNIQUE de tous les (re)démarrages du démon. Aucun appel réseau, aucun quota
+  // consommé (D-04-7) : ne fait que recharger en RAM ce que le PHP a déjà persisté.
+  // NE LEVE JAMAIS.
+  private static function restaurerSessionDemon() {
+    if (!self::estCompteLie()) {
+      return;
+    }
+    try {
+      jeeroborockDaemon::appeler(
+        'restaurerSession',
+        array('userData' => self::getUserData(), 'baseUrl' => self::getBaseUrlCompte(), 'email' => trim((string) config::byKey('email', 'jeeroborock', ''))),
+        jeeroborockDaemon::TIMEOUT_SESSION
+      );
+    } catch (Throwable $e) {
+      // Jamais de message::add ici : peut être déclenché par le cron, sans utilisateur en train de regarder.
+      log::add('jeeroborock', 'warning', 'restaurerSessionDemon : ' . $e->getMessage());
+    }
   }
 
   // Port du canal HTTP local avec le démon. Normalisé à l'écriture, valide la plage, et
@@ -185,6 +316,7 @@ class jeeroborock extends eqLogic {
       sleep(1);
       $etat = self::deamon_info();
       if ($etat['state'] == 'ok') {
+        self::restaurerSessionDemon();
         message::removeAll('jeeroborock', 'demarrageDemon');
         return true;
       }

@@ -110,8 +110,55 @@ comportement **du core**, commun à tous les plugins. Il n'est pas contournable 
   suivantes sont perdues. Sauvegarde partielle possible — acceptable si les champs sont indépendants, à
   surveiller s'ils ne le sont pas.
 
+## 6. ⚠️ `addKey` ne relâche JAMAIS le verrou de session : un hook qui appelle le réseau fige Jeedom
+
+`core/ajax/config.ajax.php` (branche `alpha`) ne contient **aucun** `session_write_close()` — vérifié
+`grep -c` sur la source du core : **0**. Son action `addKey` (l. 69-78) est une simple boucle :
+
+```php
+$values = json_decode(init('value'), true);
+foreach ($values as $key => $value) {
+    config::save($key, jeedom::fromHumanReadable($value), init('plugin', 'core'));
+}
+ajax::success();
+```
+
+**Conséquence** : tout hook `preConfig_<clé>` / `postConfig_<clé>` s'exécute **synchronement, verrou de
+session PHP tenu**. Un hook qui fait un appel réseau (démon local, API tierce) **fige toute l'interface
+Jeedom** pendant la durée de l'appel — l'utilisateur voit l'ensemble de l'UI se bloquer en enregistrant
+une page de configuration, sans aucun message.
+
+C'est le **pendant** de la règle déjà connue pour les endpoints AJAX propres au plugin (où l'on place
+`session_write_close()` juste après `ajax::init()`), mais elle est plus facile à manquer : ici le point
+d'entrée appartient au **core**, on ne l'écrit pas, et rien ne signale le problème.
+
+**Parade** — le hook doit relâcher le verrou **lui-même**, sous garde, juste avant l'appel :
+
+```php
+if (session_status() === PHP_SESSION_ACTIVE) {
+    session_write_close();
+}
+// ... puis seulement ici, l'appel reseau, borne par un timeout court
+```
+
+La garde rend l'opération **idempotente** : le même code appelé depuis un chemin où la session est déjà
+fermée (cron, hook `deamon_*`) ne double pas l'appel.
+
+**Innocuité vérifiée** sur la source : après les hooks, `addKey` n'exécute plus que la suite de la boucle
+`config::save()` (base + cache de configuration, **aucun accès à `$_SESSION`**) puis `ajax::success()`
+(`echo` + `die()`). `isConnect()`, `ajax::init()` et `unautorizedInDemo()` sont tous **antérieurs** à la
+boucle. Fermer le verrou à ce point ne prive donc aucun code du core d'un `$_SESSION` en écriture.
+
+**Corollaire de conception** : même protégé, un appel réseau depuis un hook de configuration reste du
+temps ajouté à l'enregistrement. Le borner par un **timeout court** et le rendre **best-effort**
+(`try/catch`, jamais d'exception qui remonte — cf. le point « une exception dans un `preConfig_`
+interrompt la boucle » au § 5).
+
+*Découvert en UC04 (2026-09-18) : `preConfig_email` doit notifier le démon quand le compte est délié.*
+
 ## Voir aussi
 
 - `jeeroborock-architecture.md` D3 (port du canal local, clé `portDemonHttp`) et D4 (stockage des
   identifiants, `userData` chiffré).
 - `.memory/specs/MVP/01-config-plugin-tech.md` — première application de ces règles.
+- `.memory/specs/MVP/04-authentification-cloud-tech.md` § `oublierSession()` — application du § 6.

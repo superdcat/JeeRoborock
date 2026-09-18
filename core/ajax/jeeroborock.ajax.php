@@ -39,6 +39,35 @@ try {
         'dureeFonctionnement' => intval($etat['dureeFonctionnement']),
       ));
       break;
+    case 'demanderCode':
+      $email = trim((string) config::byKey('email', 'jeeroborock', ''));
+      if ($email == '' || !filter_var($email, FILTER_VALIDATE_EMAIL)) {
+        ajax::error(__('Renseignez l\'adresse e-mail du compte Roborock et enregistrez la configuration avant de demander un code.', __FILE__));
+        break;
+      }
+      jeeroborockDaemon::appeler('demanderCode', array('email' => $email), jeeroborockDaemon::TIMEOUT_AUTH);
+      ajax::success(array('envoye' => true));
+      break;
+    case 'validerCode':
+      $email = trim((string) config::byKey('email', 'jeeroborock', ''));
+      if ($email == '' || !filter_var($email, FILTER_VALIDATE_EMAIL)) {
+        ajax::error(__('Renseignez l\'adresse e-mail du compte Roborock et enregistrez la configuration avant de demander un code.', __FILE__));
+        break;
+      }
+      $code = trim((string) init('code'));
+      if (!preg_match('/\A[A-Za-z0-9]{4,12}\z/', $code)) {
+        ajax::error(__('Saisissez le code reçu par e-mail (4 à 12 caractères alphanumériques).', __FILE__));
+        break;
+      }
+      $resultat = jeeroborockDaemon::appeler('validerCode', array('email' => $email, 'code' => $code), jeeroborockDaemon::TIMEOUT_AUTH);
+      if (!jeeroborock::enregistrerSession($resultat)) {
+        ajax::error(__('Le compte a été authentifié mais la session n\'a pas pu être enregistrée. Consultez le log du plugin.', __FILE__));
+        break;
+      }
+      // La reponse est reconstruite champ par champ : $resultat, qui contient le userData,
+      // ne repart JAMAIS vers le navigateur (AC5).
+      ajax::success(array('lie' => true));
+      break;
     default:
       throw new Exception(__('Aucune méthode correspondante à', __FILE__) . ' : ' . init('action'));
   }

@@ -105,8 +105,21 @@ aucun secret dans les réponses (ni `local_key`, ni `rriot`, ni token), et `.hta
 3. l'utilisateur saisit le code → démon `code_login_v4(code)` → renvoie un objet **`UserData`**
    (contient `token`, `rruid`, `region`, et surtout `rriot` : `u`, `s`, `h`, `k` + endpoints `r.a` API et
    `r.m` broker MQTT) ;
-4. le PHP persiste `UserData` (JSON) **et** `base_url` en configuration plugin **chiffrée**, puis
-   (re)démarre le démon.
+4. le PHP persiste `UserData` **et** `base_url` en configuration plugin (seul `userData` est chiffré) —
+   **sans redémarrer le démon**.
+
+> ⚠️ **Étape 4 corrigée en UC04 (2026-09-18).** Cette étape prescrivait « puis (re)démarre le démon » et
+> un stockage « (JSON) ». Les deux sont abandonnés :
+> - **Pas de redémarrage après un login réussi** (décision D-04-6) : le démon a déjà la session en RAM au
+>   moment où il renvoie le `UserData`. Redémarrer ferait attendre jusqu'à 30 s **dans un appel AJAX** et
+>   couperait le canal sans aucun gain. La session est en revanche **repoussée par le PHP à chaque
+>   `deamon_start()`** (point de passage unique de tous les démarrages, y compris `plugin::checkDeamon`),
+>   ce qui la restaure après un redémarrage pour n'importe quelle cause.
+> - **Stockage en `base64(JSON compact)` opaque, pas en JSON nu** (décision D-04-4) : en JSON,
+>   `config::byKey` le relirait **en tableau PHP** et l'aller-retour perdrait `rriot.r`
+>   **silencieusement**. Voir `jeeroborock-cloud-api.md` § 2.3.
+>
+> Détail complet : `.memory/specs/MVP/04-authentification-cloud-tech.md` (D-04-1 → D-04-10).
 
 **Le mot de passe est un chemin secondaire, pas le chemin principal.** `pass_login()` existe encore
 (`POST /api/v1/login`, mot de passe en clair dans les paramètres) mais :

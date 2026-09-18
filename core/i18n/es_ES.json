@@ -12,10 +12,24 @@
         "Vérification en cours…": "Comprobando…",
         "Canal opérationnel": "Canal operativo",
         "Le démon ne répond pas.": "El demonio no responde.",
-        "Le callback vers Jeedom n'est pas joignable : les mises à jour spontanées ne fonctionneront pas.": "No se puede alcanzar el callback hacia Jeedom: las actualizaciones espontáneas no funcionarán."
+        "Le callback vers Jeedom n'est pas joignable : les mises à jour spontanées ne fonctionneront pas.": "No se puede alcanzar el callback hacia Jeedom: las actualizaciones espontáneas no funcionarán.",
+        "État du compte": "Estado de la cuenta",
+        "Compte Roborock lié": "Cuenta Roborock vinculada",
+        "Compte Roborock non lié": "Cuenta Roborock no vinculada",
+        "La ré-authentification n'est jamais automatique : si la session expire, redemandez un code de connexion.": "La reautenticación nunca es automática: si la sesión caduca, solicite un nuevo código de conexión.",
+        "Code de connexion": "Código de conexión",
+        "Roborock envoie un code à usage unique à l'adresse e-mail enregistrée. Enregistrez la configuration avant de demander un code.": "Roborock envía un código de un solo uso a la dirección de correo electrónico registrada. Guarde la configuración antes de solicitar un código.",
+        "Envoyer un code": "Enviar un código",
+        "Valider le code": "Validar el código",
+        "Envoi du code en cours…": "Enviando el código…",
+        "Code envoyé, vérifiez vos e-mails": "Código enviado, revise su correo electrónico",
+        "Saisissez le code reçu par e-mail.": "Introduzca el código recibido por correo electrónico.",
+        "Validation en cours…": "Validando…",
+        "Authentification réussie, le compte est lié.": "Autenticación correcta, la cuenta está vinculada."
     },
     "plugins/jeeroborock/core/class/jeeroborock.class.php": {
         "L'adresse e-mail du compte Roborock est invalide.": "La dirección de correo electrónico de la cuenta Roborock no es válida.",
+        "L'adresse e-mail du compte Roborock a changé : le compte a été délié, demandez un nouveau code de connexion.": "La dirección de correo electrónico de la cuenta Roborock ha cambiado: la cuenta se ha desvinculado, solicite un nuevo código de conexión.",
         "Le port du canal local doit être un nombre entier compris entre 1024 et 65535.": "El puerto del canal local debe ser un número entero comprendido entre 1024 y 65535.",
         "Le port du canal local %s est déjà utilisé sur cette machine, veuillez en choisir un autre.": "El puerto del canal local %s ya está en uso en esta máquina, elija otro.",
         "Les dépendances Python sont en cours d'installation.": "Las dependencias de Python se están instalando.",
@@ -40,6 +54,7 @@
         "Robot inconnu du démon : relancez une synchronisation des équipements.": "Robot desconocido para el demonio: vuelva a ejecutar una sincronización de dispositivos.",
         "Le robot est hors ligne : il ne répond pas au cloud Roborock.": "El robot está fuera de línea: no responde a la nube Roborock.",
         "Session Roborock expirée : une nouvelle authentification par code e-mail est nécessaire.": "Sesión de Roborock caducada: es necesaria una nueva autenticación mediante código por correo electrónico.",
+        "Aucune demande de code en cours (le démon a peut-être redémarré) : demandez un nouveau code.": "No hay ninguna solicitud de código en curso (es posible que el demonio se haya reiniciado): solicite un nuevo código.",
         "Code de connexion invalide ou expiré.": "Código de conexión no válido o caducado.",
         "Trop de demandes de code de connexion : patientez quelques minutes avant de réessayer.": "Demasiadas solicitudes de código de conexión: espere unos minutos antes de volver a intentarlo.",
         "L'adresse e-mail du compte Roborock est invalide.": "La dirección de correo electrónico de la cuenta Roborock no es válida.",
@@ -66,6 +81,9 @@
     "plugins/jeeroborock/core/ajax/jeeroborock.ajax.php": {
         "401 - Accès non autorisé": "401 - Acceso no autorizado",
         "Aucune méthode correspondante à": "Ningún método corresponde a",
-        "Une erreur interne est survenue. Consultez le log du plugin.": "Se ha producido un error interno. Consulte el registro del plugin."
+        "Une erreur interne est survenue. Consultez le log du plugin.": "Se ha producido un error interno. Consulte el registro del plugin.",
+        "Saisissez le code reçu par e-mail (4 à 12 caractères alphanumériques).": "Introduzca el código recibido por correo electrónico (de 4 a 12 caracteres alfanuméricos).",
+        "Renseignez l'adresse e-mail du compte Roborock et enregistrez la configuration avant de demander un code.": "Indique la dirección de correo electrónico de la cuenta Roborock y guarde la configuración antes de solicitar un código.",
+        "Le compte a été authentifié mais la session n'a pas pu être enregistrée. Consultez le log du plugin.": "La cuenta se autenticó, pero no se pudo guardar la sesión. Consulte el registro del plugin."
     }
 }

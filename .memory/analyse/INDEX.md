@@ -14,8 +14,11 @@
 > Deux analyses **génériques Jeedom** (vérifiées contre la source du core) sont réutilisables par tout
 > plugin ; les analyses préfixées **`jeeroborock-`** sont **propres à ce plugin** (intégration Roborock).
 >
-> **Dernière mise à jour** : 2026-09-18 (UC03 : contrat du canal PHP↔démon référencé au § 0 ;
-> § 8 de `jeeroborock-cloud-api.md` rendu exhaustif — 23 exceptions `python-roborock` 7.8.0).
+> **Dernière mise à jour** : 2026-09-18 (UC04 : `jeedom-config-plugin-defauts.md` § 6 — le verrou de
+> session tenu pendant les hooks `preConfig_` ; `jeeroborock-cloud-api.md` §§ 2.1/2.3 — pièges du limiteur
+> de login et de la sérialisation de `UserData`, § 8.2 — mapping réseau corrigé via `__cause__` ;
+> `jeeroborock-architecture.md` D4 étape 4 corrigée. Avant : UC03 — contrat du canal PHP↔démon référencé au
+> § 0 ; § 8 rendu exhaustif, 23 exceptions `python-roborock` 7.8.0).
 
 ---
 
@@ -41,6 +44,7 @@
 | Où **stocker les identifiants Roborock** (config chiffrée vs cache), ré-authentification, quotas/rate-limits | `jeeroborock-architecture.md` D4/D6 + `jeeroborock-cloud-api.md` §§ 2, 4 |
 | **Clés de configuration plugin** (`email`, `portDemonHttp`, `userData`), **port du canal local** (valeur, défaut `.ini`, `getPortDemonHttp()`), validation `preConfig_` | `jeeroborock-architecture.md` D3/D4 + `.memory/specs/MVP/01-config-plugin-tech.md` |
 | **Valeur par défaut d'une config plugin** Jeedom : pourquoi un `value=` HTML ne marche pas, et le piège du court-circuit de `preConfig_` | `jeedom-config-plugin-defauts.md` |
+| ⚠️ **Un hook `preConfig_`/`postConfig_` qui appelle le réseau FIGE l'interface Jeedom** : `core/ajax/config.ajax.php` ne relâche **jamais** le verrou de session → le hook doit faire son propre `session_write_close()` sous garde | `jeedom-config-plugin-defauts.md` § 6 |
 | **`packages.json`** : indicateur de dépendance bloqué à NOK sans cause, entrées `npm`/`yarn`/`composer` du template, venv, `getCmdPython3` | `jeedom-dependances-et-demon.md` §§ 1-2 |
 | **Bloquer l'activation** sous une version d'OS : `requireOsVersion` (et pourquoi `os.min` ne sert à rien pour ça) | `jeedom-dependances-et-demon.md` § 3 |
 | **Hooks `deamon_info`/`deamon_start`/`deamon_stop`** : ce que le core avale, garde-fou 45 s, état par fichier PID, nommage du démon | `jeedom-dependances-et-demon.md` § 4 |
@@ -49,6 +53,9 @@
 | **Callback démon → Jeedom** (`core/php/jee<Id>.php`) : apikey, `401`, blocage par le `.htaccess` du template | `jeedom-dependances-et-demon.md` § 7 |
 | Démon Python qui **ne démarre pas** : lib `jeedom/jeedom.py` du template non importable ; log muet au niveau par défaut | `jeedom-dependances-et-demon.md` §§ 8-9 |
 | **Login Roborock** (code e-mail vs mot de passe), `UserData`/`rriot`, signature Hawk, serveur régional | `jeeroborock-cloud-api.md` §§ 1-3 |
+| ⚠️ **Pièges du limiteur de login** : `code_login_v4` ne consomme **aucun** jeton, compteur **par processus**, une demande peut coûter **2** jetons, **aucun timeout par requête** dans la lib ; `__version__` absent | `jeeroborock-cloud-api.md` § 2.1 |
+| **Persister `UserData`** : `as_dict`/`from_dict` silencieusement tolérants → contrôler `token`/`rriot`/`rriot.r` ; pourquoi le stockage est en **base64 opaque** et jamais en JSON nu | `jeeroborock-cloud-api.md` § 2.3 |
+| Une erreur réseau remonte en **`RoborockException` nue** (pas `CLOUD_UNREACHABLE`) : la lib enveloppe par `raise … from err` → tout mapping par type doit regarder **`__cause__`** | `jeeroborock-cloud-api.md` § 8.2 |
 | **Routines / « usages »** : lister et exécuter (endpoints, modèle, limites) | `jeeroborock-cloud-api.md` § 5 |
 | `homedata` : `duid`, `local_key`, `pv` (V1/A01/B01), produits, pièces ; quotas de découverte | `jeeroborock-cloud-api.md` § 4 |
 | **MQTT Roborock** : dérivation des identifiants, topics, framing 101/102, **push dps** (batterie, état…) | `jeeroborock-mqtt-protocole.md` §§ 1-3 |

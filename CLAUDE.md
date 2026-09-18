@@ -87,7 +87,11 @@ Disposition Jeedom fixe (type MVC), nommée d'après l'id `jeeroborock`.
   ⚠️ **Ces fichiers `desktop/php/*.php` sont indentés en tabulations + fins de ligne CRLF** (contrairement
   à `core/class/*.php` en 2 espaces) — cf. mémoire d'agent `feedback-edit-tool-tab-indented-files`.
 - **`desktop/js/jeeroborock.js`** — front-end (lignes de commandes, tri, helpers `jeedom.*`).
-- **`desktop/modal/modal.jeeroborock.php`** — modale(s) de la page de config (dont celle du code e-mail).
+- **`desktop/modal/modal.jeeroborock.php`** — modale(s) de la page de config. ⚠️ **Encore le squelette du
+  template, jamais personnalisé.** La saisie du code e-mail **n'y est pas** : UC04 l'a implémentée en
+  **bloc inline** dans `plugin_info/configuration.*` (décision D-04-1 — AC3 exige que « Envoyer un code »
+  et « Valider le code » coexistent sans rechargement, ce qu'une modale empêche en masquant le champ
+  e-mail et l'état du compte). **Ne pas réintroduire de modale pour l'authentification.**
 - **`plugin_info/configuration.php`** — formulaire de la page de config **plugin** (`gotoPluginConf`).
   Champs liés en `class="configKey" data-l1key="<clé>"`. Protégé par `isConnect('admin')` **dans le
   fichier lui-même** : le core n'applique aucun contrôle admin sur cette inclusion.
@@ -138,6 +142,12 @@ Disposition Jeedom fixe (type MVC), nommée d'après l'id `jeeroborock`.
   démarrage. Depuis UC03, le routage vit dans **`canal.py`** (registre d'opérations, middlewares,
   `POST /rpc` + `GET /sante`) et le mapping des exceptions dans **`erreurs.py`** ; `jeeroborockd.py` ne
   garde que le cycle de vie. Ajouter une opération = `canal.enregistrer('<nom>', <coroutine>)`.
+  UC04 a posé **`authentification.py`** (opérations `demanderCode`, `validerCode`, `restaurerSession`,
+  sérialisation du `UserData`) : **un module par domaine fonctionnel**, enregistré explicitement depuis
+  `jeeroborockd.py` — pas par effet de bord d'import. L'instance `RoborockApiClient` vit dans
+  `contexte['auth']` et **doit** survivre entre l'envoi du code et sa validation (`header_clientid` dérive
+  d'un identifiant régénéré à chaque instanciation) ; la session restaurée vit dans `contexte['session']`.
+  ⚠️ **Ne jamais sérialiser `contexte` en bloc** dans une réponse : il porte désormais des secrets.
   ⚠️ Ces coroutines tournent dans la **boucle asyncio unique** du démon : tout appel bloquant gèle **tout**
   le canal, `/sante` compris, et se présente à l'utilisateur comme « le démon ne répond pas » alors que le
   démon est vivant. Tout code bloquant passe par `asyncio.to_thread`.
@@ -165,7 +175,13 @@ Disposition Jeedom fixe (type MVC), nommée d'après l'id `jeeroborock`.
 - **Config plugin** (`config::save/byKey(..., 'jeeroborock')`) : e-mail du compte Roborock, **`UserData`**
   obtenu après authentification (jeton + identifiants dérivés `rriot`), `base_url` régionale, port du
   canal HTTP local du démon. Clés posées en UC01 : **`email`**, **`portDemonHttp`** (défaut **61350**, à
-  lire **uniquement** via `jeeroborock::getPortDemonHttp()`) et **`userData`**. ⚠️ **Pas de clé de niveau
+  lire **uniquement** via `jeeroborock::getPortDemonHttp()`) et **`userData`** ; UC04 y ajoute
+  **`baseUrl`** (serveur régional retourné par le login — non chiffrée, **sans champ de formulaire**).
+  ⚠️ Le `userData` est stocké en **`base64(JSON compact)` opaque**, jamais en JSON nu : `config::byKey`
+  applique `is_json()` et relirait un JSON **en tableau PHP**, ce qui perdrait `rriot.r`
+  **silencieusement** à l'aller-retour. L'état « compte lié » se lit **uniquement** via
+  `jeeroborock::estCompteLie()` (présence de `userData`), jamais en interrogeant le démon.
+  ⚠️ **Pas de clé de niveau
   de log propre au plugin** : le sélecteur « Niveau log » est fourni par le core sur cette même page et
   `log::add()` ne consulte que la clé cœur `log::level::jeeroborock`. Les clés **sensibles** — au
   minimum le `UserData` — sont

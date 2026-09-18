@@ -12,10 +12,24 @@
         "Vérification en cours…": "Checking…",
         "Canal opérationnel": "Channel operational",
         "Le démon ne répond pas.": "The daemon is not responding.",
-        "Le callback vers Jeedom n'est pas joignable : les mises à jour spontanées ne fonctionneront pas.": "The callback to Jeedom is not reachable: unsolicited updates will not work."
+        "Le callback vers Jeedom n'est pas joignable : les mises à jour spontanées ne fonctionneront pas.": "The callback to Jeedom is not reachable: unsolicited updates will not work.",
+        "État du compte": "Account status",
+        "Compte Roborock lié": "Roborock account linked",
+        "Compte Roborock non lié": "Roborock account not linked",
+        "La ré-authentification n'est jamais automatique : si la session expire, redemandez un code de connexion.": "Re-authentication is never automatic: if the session expires, request a new login code.",
+        "Code de connexion": "Login code",
+        "Roborock envoie un code à usage unique à l'adresse e-mail enregistrée. Enregistrez la configuration avant de demander un code.": "Roborock sends a one-time code to the registered e-mail address. Save the configuration before requesting a code.",
+        "Envoyer un code": "Send a code",
+        "Valider le code": "Validate the code",
+        "Envoi du code en cours…": "Sending the code…",
+        "Code envoyé, vérifiez vos e-mails": "Code sent, check your e-mails",
+        "Saisissez le code reçu par e-mail.": "Enter the code received by e-mail.",
+        "Validation en cours…": "Validating…",
+        "Authentification réussie, le compte est lié.": "Authentication successful, the account is linked."
     },
     "plugins/jeeroborock/core/class/jeeroborock.class.php": {
         "L'adresse e-mail du compte Roborock est invalide.": "The Roborock account e-mail address is invalid.",
+        "L'adresse e-mail du compte Roborock a changé : le compte a été délié, demandez un nouveau code de connexion.": "The Roborock account e-mail address has changed: the account has been unlinked, request a new login code.",
         "Le port du canal local doit être un nombre entier compris entre 1024 et 65535.": "The local channel port must be an integer between 1024 and 65535.",
         "Le port du canal local %s est déjà utilisé sur cette machine, veuillez en choisir un autre.": "The local channel port %s is already in use on this machine, please choose another one.",
         "Les dépendances Python sont en cours d'installation.": "Python dependencies are being installed.",
@@ -40,6 +54,7 @@
         "Robot inconnu du démon : relancez une synchronisation des équipements.": "Robot unknown to the daemon: run a device synchronization again.",
         "Le robot est hors ligne : il ne répond pas au cloud Roborock.": "The robot is offline: it is not responding to the Roborock cloud.",
         "Session Roborock expirée : une nouvelle authentification par code e-mail est nécessaire.": "Roborock session expired: a new authentication by e-mail code is required.",
+        "Aucune demande de code en cours (le démon a peut-être redémarré) : demandez un nouveau code.": "No code request in progress (the daemon may have restarted): request a new code.",
         "Code de connexion invalide ou expiré.": "Login code invalid or expired.",
         "Trop de demandes de code de connexion : patientez quelques minutes avant de réessayer.": "Too many login code requests: wait a few minutes before trying again.",
         "L'adresse e-mail du compte Roborock est invalide.": "The Roborock account e-mail address is invalid.",
@@ -66,6 +81,9 @@
     "plugins/jeeroborock/core/ajax/jeeroborock.ajax.php": {
         "401 - Accès non autorisé": "401 - Unauthorized access",
         "Aucune méthode correspondante à": "No matching method for",
-        "Une erreur interne est survenue. Consultez le log du plugin.": "An internal error occurred. Check the plugin log."
+        "Une erreur interne est survenue. Consultez le log du plugin.": "An internal error occurred. Check the plugin log.",
+        "Saisissez le code reçu par e-mail (4 à 12 caractères alphanumériques).": "Enter the code received by e-mail (4 to 12 alphanumeric characters).",
+        "Renseignez l'adresse e-mail du compte Roborock et enregistrez la configuration avant de demander un code.": "Enter the Roborock account e-mail address and save the configuration before requesting a code.",
+        "Le compte a été authentifié mais la session n'a pas pu être enregistrée. Consultez le log du plugin.": "The account was authenticated but the session could not be saved. Check the plugin log."
     }
 }

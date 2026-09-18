@@ -70,9 +70,20 @@ class ErreurDemon(Exception):
 
 def code_pour_exception(exc):
     """Parcourt type(exc).__mro__ et retourne (code_stable, nom_de_classe). Ne leve
-    jamais : retombe sur CODE_DEFAUT si aucune classe du MRO n'est connue."""
+    jamais : retombe sur CODE_DEFAUT si aucune classe du MRO n'est connue.
+
+    UC04 : PreparedRequest.request() (web_api.py) convertit une panne de transport
+    (aiohttp.ClientError, TimeoutError, OSError) en RoborockException NUE via
+    'raise RoborockException(...) from err'. Sans lire __cause__, le MRO ne matche que
+    RoborockException -> ROBOROCK_ERROR ("Erreur Roborock non identifiee"), alors qu'une
+    panne reseau devrait rester CLOUD_UNREACHABLE."""
     for classe in type(exc).__mro__:
         nom = classe.__name__
         if nom in TABLE_CODES:
-            return (TABLE_CODES[nom], nom)
+            code = TABLE_CODES[nom]
+            if code == "ROBOROCK_ERROR" and exc.__cause__ is not None:
+                code_cause, nom_cause = code_pour_exception(exc.__cause__)
+                if code_cause != CODE_DEFAUT:
+                    return (code_cause, nom_cause)
+            return (code, nom)
     return (CODE_DEFAUT, type(exc).__name__)

@@ -33,6 +33,33 @@ if (!isConnect('admin')) {
         <input type="email" class="configKey form-control" data-l1key="email"/>
       </div>
     </div>
+    <div class="form-group">
+      <label class="col-md-4 control-label">{{État du compte}}</label>
+      <div class="col-md-8">
+        <?php if (jeeroborock::estCompteLie()) { ?>
+        <span id="jeeroborockEtatCompte" class="label label-success">{{Compte Roborock lié}}</span>
+        <?php } else { ?>
+        <span id="jeeroborockEtatCompte" class="label label-default">{{Compte Roborock non lié}}</span>
+        <?php } ?>
+      </div>
+    </div>
+    <div class="form-group">
+      <div class="col-md-8 col-md-offset-4">
+        <div class="alert alert-info">{{La ré-authentification n'est jamais automatique : si la session expire, redemandez un code de connexion.}}</div>
+      </div>
+    </div>
+    <div class="form-group">
+      <label class="col-md-4 control-label">{{Code de connexion}}
+        <sup><i class="fas fa-question-circle tooltips" title="{{Roborock envoie un code à usage unique à l'adresse e-mail enregistrée. Enregistrez la configuration avant de demander un code.}}"></i></sup>
+      </label>
+      <div class="col-md-8">
+        <a class="btn btn-default" id="bt_jeeroborockDemanderCode">{{Envoyer un code}}</a>
+        <input type="text" id="jeeroborockCodeConnexion" class="form-control" style="display:inline-block;width:auto;" autocomplete="off" maxlength="12" inputmode="numeric"/>
+        <a class="btn btn-primary" id="bt_jeeroborockValiderCode">{{Valider le code}}</a>
+        <br/>
+        <span id="jeeroborockResultatAuth"></span>
+      </div>
+    </div>
   </fieldset>
   <fieldset>
     <legend>{{Canal local avec le démon}}</legend>
@@ -80,6 +107,81 @@ if (!isConnect('admin')) {
           message = "{{Le callback vers Jeedom n'est pas joignable : les mises à jour spontanées ne fonctionneront pas.}}";
         }
         zoneResultat.text(message);
+      }
+    });
+  });
+
+  var jeeroborockVerrouAuth = false;
+
+  $('#bt_jeeroborockDemanderCode').on('click', function () {
+    if (jeeroborockVerrouAuth) {
+      return;
+    }
+    jeeroborockVerrouAuth = true;
+    var zoneResultat = $('#jeeroborockResultatAuth');
+    $('#bt_jeeroborockDemanderCode').addClass('disabled');
+    $('#bt_jeeroborockValiderCode').addClass('disabled');
+    zoneResultat.text("{{Envoi du code en cours…}}");
+    $.ajax({
+      type: 'POST',
+      url: 'plugins/jeeroborock/core/ajax/jeeroborock.ajax.php',
+      data: {action: 'demanderCode'},
+      dataType: 'json',
+      timeout: 30000,
+      error: function (requete) {
+        zoneResultat.text("{{Le démon ne répond pas.}}");
+      },
+      success: function (donnees) {
+        if (donnees.state != 'ok') {
+          zoneResultat.text(donnees.result);
+          return;
+        }
+        zoneResultat.text("{{Code envoyé, vérifiez vos e-mails}}");
+      },
+      complete: function () {
+        jeeroborockVerrouAuth = false;
+        $('#bt_jeeroborockDemanderCode').removeClass('disabled');
+        $('#bt_jeeroborockValiderCode').removeClass('disabled');
+      }
+    });
+  });
+
+  $('#bt_jeeroborockValiderCode').on('click', function () {
+    if (jeeroborockVerrouAuth) {
+      return;
+    }
+    var zoneResultat = $('#jeeroborockResultatAuth');
+    var code = $.trim($('#jeeroborockCodeConnexion').val());
+    if (code == '') {
+      zoneResultat.text("{{Saisissez le code reçu par e-mail.}}");
+      return;
+    }
+    jeeroborockVerrouAuth = true;
+    $('#bt_jeeroborockDemanderCode').addClass('disabled');
+    $('#bt_jeeroborockValiderCode').addClass('disabled');
+    zoneResultat.text("{{Validation en cours…}}");
+    $.ajax({
+      type: 'POST',
+      url: 'plugins/jeeroborock/core/ajax/jeeroborock.ajax.php',
+      data: {action: 'validerCode', code: code},
+      dataType: 'json',
+      timeout: 30000,
+      error: function (requete) {
+        zoneResultat.text("{{Le démon ne répond pas.}}");
+      },
+      success: function (donnees) {
+        if (donnees.state != 'ok') {
+          zoneResultat.text(donnees.result);
+          return;
+        }
+        zoneResultat.text("{{Authentification réussie, le compte est lié.}}");
+        $('#jeeroborockEtatCompte').text("{{Compte Roborock lié}}").removeClass('label-default').addClass('label-success');
+        $('#jeeroborockCodeConnexion').val('');
+      },
+      complete: function () {
+        jeeroborockVerrouAuth = false;
+        $('#bt_jeeroborockDemanderCode').removeClass('disabled');
+        $('#bt_jeeroborockValiderCode').removeClass('disabled');
       }
     });
   });

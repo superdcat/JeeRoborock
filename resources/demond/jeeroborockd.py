@@ -37,6 +37,7 @@ import time
 
 from aiohttp import web
 
+import authentification
 from canal import construire_application
 from jeedom.jeedom import jeedom_com, jeedom_utils
 
@@ -137,7 +138,13 @@ async def principal_async(args):
         "avertissement": avertissement,
         "callback_ok": callback_ok,
         "demarrage": time.time(),
+        "auth": None,       # UC04 : {'client': RoborockApiClient, 'email': str} pendant un login en cours
+        "session": None,    # UC04 : {'userData': str, 'baseUrl': str, 'email': str} apres succes
     }
+
+    # Enregistrement EXPLICITE (pas par effet de bord d'import) : ordre visible, echec
+    # visible au demarrage plutot qu'un canal muet sur une operation manquante.
+    authentification.enregistrer_operations()
 
     application = construire_application(args.apikey, contexte)
     try:
