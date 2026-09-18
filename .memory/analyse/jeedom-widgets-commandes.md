@@ -210,3 +210,72 @@ Deux propriétés du core rendent ce motif fiable :
 
 ⚠️ Ne pas confondre avec la protection contre la suppression de l'**équipement** : `dontRemoveCmd()` ne
 porte que sur les commandes.
+
+## 10. Fraîcheur d'une commande info : `collectDate` (vérifié contre le core, UC10)
+
+**Question type** : « depuis combien de temps cette commande n'a-t-elle plus reçu de donnée ? » — le
+besoin de tout chien de garde (démon vivant ? équipement encore joignable ?).
+
+### 10.1 `checkAndUpdateCmd()` rafraîchit `collectDate` MÊME quand la valeur ne change pas
+
+`eqLogic::checkAndUpdateCmd()` (`core/class/eqLogic.class.php` l.680-708) fait deux choses distinctes :
+
+```
+if ($oldValue !== $cmd->formatValue($_value) || $oldValue === '') {
+  ... $cmd->event($_value);          // <- historisation + evenement
+}
+if ($_updateTime !== false) {
+  $cmd->setCache('collectDate', date('Y-m-d H:i:s'));
+  $this->setStatus(array('lastCommunication' => ...));
+}
+```
+
+Deux conséquences qui se combinent très bien :
+
+1. **Pas d'entrée d'historique sur une valeur inchangée** — c'est **gratuit**, porté par le cœur. Un
+   plugin qui rafraîchit en boucle n'a **aucun filtre à écrire** pour éviter de polluer l'historique.
+   ⚠️ Ne pas confondre avec `cmd::event()` (l.2327-2331), qui lui **historise même en répétition** — mais
+   `checkAndUpdateCmd()` ne l'appelle justement pas dans ce cas.
+2. **`collectDate` avance quand même** — c'est donc une source de fraîcheur **fiable** : un équipement
+   parfaitement joignable mais dont l'état ne bouge pas (robot à l'arrêt, capteur stable) ne sera **pas**
+   vu à tort comme muet.
+
+### 10.2 ⚠️ `getCollectDate()` FABRIQUE « maintenant » pour une commande jamais écrite
+
+Piège coûteux, parce qu'il produit exactement l'inverse du comportement attendu d'un chien de garde.
+
+`cmd::getCollectDate()` (`core/class/cmd.class.php` l.3896-3901) délègue à `execCmd()` quand
+`_collectDate` est vide, et `execCmd()` (l.1622-1636) se termine par :
+
+```
+if (isset($state['collectDate'])) { ... } else { $this->setCollectDate(date('Y-m-d H:i:s')); }
+```
+
+⇒ une commande **créée mais jamais écrite** rapporte une `collectDate` égale à **maintenant**, et le
+restera à chaque appel. Un chien de garde bâti dessus verrait l'équipement **éternellement frais** et ne
+basculerait **jamais** en « déconnecté ».
+
+C'est un cas de figure banal, pas théorique : un plugin qui crée ses commandes info à la découverte de
+l'équipement (avant toute lecture réussie) est exactement dans cette situation.
+
+**Parade** : lire la primitive de stockage, `cmd::getCache('collectDate', '')` (l.4059-4062), publique,
+qui renvoie **`''`** quand l'entrée est absente. Le chien de garde distingue alors trois cas :
+
+| Lecture | Sens | Traitement recommandé |
+|---|---|---|
+| commande absente (`!is_object($cmd)`) | jamais créée | « jamais lu » |
+| `getCache('collectDate','') === ''` | créée, jamais écrite | « jamais lu » |
+| horodatage exploitable | donnée reçue | comparer à un délai de garde |
+
+⚠️ **« Jamais lu » n'est pas « déconnecté ».** Écrire un indicateur de connexion à 0 sur une commande
+jamais écrite revient à **affirmer une déconnexion jamais observée** — et se produit aussi après une
+simple purge du cache (`collectDate` vit dans `cmdCacheAttr<id>`, `cmd::setCache` l.4071-4074), donc sur
+un équipement en parfait état. Le comportement sûr est de s'abstenir d'écrire et de se contenter de
+redemander un rafraîchissement.
+
+### 10.3 Ne pas relire la valeur affichée pour en déduire une date
+
+Tentation naturelle quand le plugin expose déjà une commande « dernière mise à jour » : faire
+`execCmd()` puis `strtotime()` dessus. À éviter — le format de cette chaîne est un contrat **du plugin**,
+pas du cœur : il se casse au premier changement de présentation, et la commande peut par ailleurs être
+historisée/arrondie. `collectDate` est la donnée que le cœur maintient **pour cet usage**.

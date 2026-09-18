@@ -34,6 +34,10 @@
 # de client (creer_client) et l'import garde de la librairie (IMPORT_OK) sont deplaces
 # dans le module de session partage session.py (dette explicite d'UC05). Ce fichier ne
 # porte plus que le flux d'authentification lui-meme.
+#
+# UC10 : restaurer_session arme/desarme le superviseur temps reel (supervision.py) -
+# seul point d'entree du superviseur, la chaine de login (demander_code/valider_code)
+# n'est pas touchee (dette R13 assumee, cf. spec technique).
 
 import logging
 import re
@@ -42,6 +46,7 @@ from erreurs import ErreurDemon, code_pour_exception
 from session import IMPORT_OK, RoborockApiClient, creer_client, decoder_user_data, encoder_user_data
 
 import canal
+import supervision
 
 _RE_EMAIL_INTERDITS = re.compile(r"[\s\x00-\x1f\x7f]")
 _RE_CODE = re.compile(r"\A[A-Za-z0-9]{4,12}\Z")
@@ -131,6 +136,7 @@ async def restaurer_session(parametres, contexte):
 
     if user_data_brut == "":
         contexte["session"] = None
+        supervision.arreter(contexte)
         return {"authentifie": False}
 
     user_data = decoder_user_data(user_data_brut)
@@ -139,6 +145,7 @@ async def restaurer_session(parametres, contexte):
         "baseUrl": str(base_url),
         "email": email,
     }
+    supervision.demarrer(contexte, parametres)
     return {"authentifie": True}
 
 

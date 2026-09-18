@@ -41,6 +41,7 @@ import authentification
 import equipements
 import robots
 import routines
+import supervision
 from canal import construire_application
 from jeedom.jeedom import jeedom_com, jeedom_utils
 
@@ -130,7 +131,7 @@ async def principal_async(args):
 
     jeedom_utils.set_log_level(args.loglevel)
 
-    com = jeedom_com(apikey=args.apikey, url=args.callback, cycle=0)
+    com = jeedom_com(apikey=args.apikey, url=args.callback, cycle=supervision.INTERVALLE_LOT_S)
     callback_ok = com.test()
     if not callback_ok:
         logging.error("Callback Jeedom injoignable au demarrage - le demon reste actif (canal montant seul affecte)")
@@ -145,6 +146,8 @@ async def principal_async(args):
         "session": None,    # UC04 : {'userData': str, 'baseUrl': str, 'email': str} apres succes
         "gestionnaire": None,  # UC07 : porte le DeviceManager et sa session MQTT - contient des
                                 # secrets (local_key via le HomeData mis en cache), ne jamais serialiser
+        "com": com,             # UC10 : partage avec supervision.py pour la publication des lots
+        "superviseur": None,    # UC10 : etat du superviseur temps reel (cf. supervision.py)
     }
 
     # Enregistrement EXPLICITE (pas par effet de bord d'import) : ordre visible, echec
@@ -191,6 +194,8 @@ async def principal_async(args):
             os.remove(args.pid)
         except OSError:
             pass
+        # fermer_gestionnaire=False : le gestionnaire est ferme juste apres, explicitement.
+        supervision.arreter(contexte, fermer_gestionnaire=False)
         await robots.fermer_gestionnaire(contexte)
         await site.stop()
         await executeur.cleanup()

@@ -14,7 +14,7 @@
 > Deux analyses **génériques Jeedom** (vérifiées contre la source du core) sont réutilisables par tout
 > plugin ; les analyses préfixées **`jeeroborock-`** sont **propres à ce plugin** (intégration Roborock).
 >
-> **Dernière mise à jour** : 2026-09-18 (UC09 : `jeedom-widgets-commandes.md` **§ 9 nouveau** —
+> **Dernière mise à jour** : 2026-09-19 (UC10 : `jeedom-widgets-commandes.md` **§ 10 nouveau** — fraîcheur d'une commande info : `checkAndUpdateCmd()` rafraîchit `collectDate` **même quand la valeur ne change pas** (donc source de fraîcheur fiable sur un équipement immobile, **et** filtre d'historique gratuit), mais `cmd::getCollectDate()` **fabrique « maintenant »** pour une commande jamais écrite — un chien de garde bâti dessus ne bascule jamais ; lire `getCache('collectDate', '')`, et ne pas confondre « jamais lu » avec « déconnecté ». `jeeroborock-mqtt-protocole.md` **§ 3.bis nouveau** — contrat réel de l'abonnement au push : `add_update_listener` (le `add_dps_listener` du canal est inatteignable), `refresh()` **ne notifie pas** les listeners, la lib filtre déjà les valeurs inchangées, le push passe **uniquement** par MQTT, et `clean_area`/`clean_time`/`clean_percent` **ne sont pas poussés** — la progression de nettoyage exige un sondage. Avant : UC09 : `jeedom-widgets-commandes.md` **§ 9 nouveau** —
 > `dontRemoveCmd()` rend l'icône « supprimer » d'une commande **inerte** (seul chemin de suppression :
 > `eqLogic.ajax.php`), parade = verrou conditionnel ; `utils::a2o()` **fusionne** la configuration, donc une
 > clé technique hors formulaire survit à une sauvegarde. `jeeroborock-cloud-api.md` § 5 **corrigé** — les
@@ -54,6 +54,8 @@
 | **Secret et trace d'exception sur le chemin d'une commande** : `cmd.ajax.php` sort par `displayException()` → `getTraceAsString()` dans le DOM en log `debug` global ⇒ jamais de secret en **argument scalaire** | `jeedom-widgets-commandes.md` § 4 |
 | Commande **action** sautée en silence (« succès » sans exécution) : piège de la `value` liée et d'`isAlreadyInStateAllow()` ; `numberTryWithoutSuccess` jamais incrémenté par le cœur | `jeedom-widgets-commandes.md` § 4 |
 | **Commande action PARAMÉTRÉE** (saisie utilisateur : subType `message`, valeur dans `$_options['message']`) | `jeedom-widgets-commandes.md` § 4 |
+| **Depuis quand une commande n'a-t-elle plus reçu de donnée ?** (chien de garde, mode dégradé) : `checkAndUpdateCmd()` rafraîchit `collectDate` **même valeur inchangée**, et n'historise pas une répétition (filtre **gratuit**, rien à écrire) | `jeedom-widgets-commandes.md` § 10 |
+| ⚠️ **Un chien de garde qui ne bascule JAMAIS en « déconnecté »** : `cmd::getCollectDate()` **fabrique « maintenant »** pour une commande créée mais jamais écrite → lire `getCache('collectDate', '')` ; et « jamais lu » ≠ « déconnecté » | `jeedom-widgets-commandes.md` § 10 |
 | ⚠️ **L'icône « supprimer » d'une commande ne fait RIEN** (la commande réapparaît après « Sauvegarder », sans message) : `dontRemoveCmd()` renvoie `true` → rendre le verrou **conditionnel** ; `utils::a2o()` **fusionne** la configuration, une clé technique hors formulaire survit | `jeedom-widgets-commandes.md` § 9 |
 | Appliquer un **template de widget sans écraser** le choix utilisateur (« si vide ») | `jeedom-widgets-commandes.md` § 6 |
 | **CSP Jeedom bloque tout média/image EXTERNE** → proxy same-origin (ex. tuile carte) | `jeedom-widgets-commandes.md` § 7 |
@@ -84,6 +86,8 @@
 | **Routines / « usages »** : lister et exécuter (endpoints, modèle, limites) | `jeeroborock-cloud-api.md` § 5 |
 | `homedata` : `duid`, `local_key`, `pv` (V1/A01/B01), produits, pièces ; quotas de découverte | `jeeroborock-cloud-api.md` § 4 |
 | **MQTT Roborock** : dérivation des identifiants, topics, framing 101/102, **push dps** (batterie, état…) | `jeeroborock-mqtt-protocole.md` §§ 1-3 |
+| ⚠️ **S'abonner au push** d'un robot V1 : quelle API (`add_update_listener`, pas `add_dps_listener`), `refresh()` **ne notifie pas**, filtre de changement déjà côté lib, **quota nul** | `jeeroborock-mqtt-protocole.md` § 3.bis |
+| ⚠️ **Dashboard figé pendant un nettoyage** alors que le push fonctionne : `clean_area`/`clean_time`/`clean_percent`/`in_cleaning` **ne sont pas poussés** — seul le sondage périodique porte la progression | `jeeroborock-mqtt-protocole.md` § 3.bis |
 | Quels **états/commandes** existent sur un robot V1, capacités **dépendantes du modèle**, cartes & pièces | `jeeroborock-mqtt-protocole.md` §§ 4-8 |
 | Mapping **eqLogic/commandes Jeedom** (logicalId = `duid`), commandes de routine, création conditionnelle | `jeeroborock-modele-equipement.md` |
 | ⚠️ **Un robot est-il supporté ?** Le critère n'est **pas** seulement `pv == "1.0"` : il faut **aussi** la catégorie `robot.vacuum.cleaner` **et** un produit résolu (`get_home_data_v3` renvoie aussi les non-robots du compte) ; ne pas utiliser `device_products`, qui perd silencieusement un produit inconnu | `jeeroborock-modele-equipement.md` § 1 |

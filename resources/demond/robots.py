@@ -191,10 +191,19 @@ async def obtenir_appareil(parametres, contexte):
     return appareil
 
 
-async def _attendre_connexion(appareil):
+async def obtenir_gestionnaire(parametres, contexte):
+    """Wrapper public de _gestionnaire() (UC10) : robots.py reste le SEUL module qui
+    construit un DeviceManager, si bien que _VERROU_GESTIONNAIRE protege aussi le
+    superviseur (supervision.py). Ne resout AUCUN duid, contrairement a
+    obtenir_appareil()."""
+    return await _gestionnaire(parametres, contexte)
+
+
+async def attendre_connexion(appareil):
     """Attend jusqu'a DELAI_ATTENTE_CONNEXION_S que le canal V1 signale une connexion
     etablie. EXTRAITE de lire_etat (UC07), comportement strictement identique - partagee
-    avec envoyer_commande (UC08). Retourne l'etat final de appareil.is_connected."""
+    avec envoyer_commande (UC08) et supervision.py (UC10). Retourne l'etat final de
+    appareil.is_connected."""
     attente = 0.0
     while not appareil.is_connected and attente < DELAI_ATTENTE_CONNEXION_S:
         await asyncio.sleep(PAS_ATTENTE_S)
@@ -214,7 +223,7 @@ async def fermer_gestionnaire(contexte):
         logging.warning("Fermeture du gestionnaire en erreur (arret du demon) : %s", erreur)
 
 
-def _capacites(status, features):
+def capacites_etat(status, features):
     """7 booleens - DEUX FAMILLES, VOLONTAIREMENT NON FACTORISEES (cf. spec § Detection
     de capacites). NE PAS unifier : device_features.py (l.98-99) renvoie True par
     defaut quand un champ n'a AUCUNE metadonnee, donc "X or is_field_supported(...)"
@@ -243,7 +252,7 @@ def _capacites(status, features):
     }
 
 
-def _valeurs(status):
+def valeurs_etat(status):
     """Cles ABSENTES quand la valeur correspondante est None : jamais de 0/'' par
     defaut (AC4). Conversions faites ICI, jamais en PHP (clean_area est en mm2, unite
     m2 via la PROPRIETE de la librairie square_meter_clean_area ; clean_time est en
@@ -275,7 +284,7 @@ async def lire_etat(parametres, contexte):
 
     en_ligne = appareil.device_info.online
 
-    await _attendre_connexion(appareil)
+    await attendre_connexion(appareil)
 
     if not appareil.is_connected:
         return {
@@ -316,8 +325,8 @@ async def lire_etat(parametres, contexte):
 
     status = appareil.v1_properties.status
     features = appareil.v1_properties.device_features
-    capacites = _capacites(status, features)
-    valeurs = _valeurs(status)
+    capacites = capacites_etat(status, features)
+    valeurs = valeurs_etat(status)
     # Relu APRES la RPC : c'est cette valeur (pas celle d'avant la tentative de
     # connexion) qui porte AC6.
     connecte = appareil.is_connected
@@ -385,7 +394,7 @@ async def envoyer_commande(parametres, contexte):
     appareil = await obtenir_appareil(parametres, contexte)
     duid = appareil.duid
 
-    connecte = await _attendre_connexion(appareil)
+    connecte = await attendre_connexion(appareil)
     if not connecte:
         # Chemin rapide (AC7) : aucune RPC emise sur un canal que is_connected signale
         # deja comme non etabli.
@@ -423,8 +432,8 @@ async def envoyer_commande(parametres, contexte):
             await asyncio.wait_for(appareil.v1_properties.status.refresh(), min(DELAI_RELECTURE_S, restant))
             status = appareil.v1_properties.status
             features = appareil.v1_properties.device_features
-            capacites = _capacites(status, features)
-            etat = _valeurs(status)
+            capacites = capacites_etat(status, features)
+            etat = valeurs_etat(status)
             etat_lu = True
         except Exception as erreur:
             # Relecture BEST-EFFORT : ne relever JAMAIS (l'action a reussi, la transformer

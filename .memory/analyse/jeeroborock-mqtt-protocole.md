@@ -59,6 +59,61 @@ nettoyage / 60 s au repos** en cloud (15/30 s en local).
 Le canal V1 est **adaptatif** : il tente le TCP local et retombe sur MQTT — non désactivable en 7.8.0
 (cf. `jeeroborock-architecture.md` D9).
 
+### ⚠️ 3.bis S'abonner réellement au push : contrat vérifié (7.8.0, UC10)
+
+Le § 3 dit *quoi*. Voici le *comment*, vérifié verbatim sur le wheel — quatre points non devinables.
+
+**1. L'API à utiliser est `add_update_listener`, pas `add_dps_listener`.**
+`V1Channel.add_dps_listener` est bien publique, mais **inatteignable** depuis un `RoborockDevice` :
+`_channel` est privé et sans accesseur (`devices/device.py` l.56-121), y accéder imposerait de toucher
+un attribut privé de `v1_properties` (l.204). La voie publique est le trait lui-même :
+
+```
+desabonner = appareil.v1_properties.status.add_update_listener(rappel)   # -> Callable de desabonnement
+```
+
+héritée de `TraitUpdateListener` (`devices/traits/common.py` l.47-70) ; `StatusTrait` en hérite
+(`traits/v1/status.py` l.32). Le rappel est **synchrone** et tourne **dans la boucle asyncio**
+(transport `aiomqtt`, pas de thread paho) — la lib documente elle-même qu'il ne doit pas bloquer.
+Il est enveloppé par `safe_callback()` (`callbacks.py` l.13-31), donc une exception dans le rappel ne
+casse pas la librairie, mais elle est avalée dans un log : ne pas compter dessus pour du contrôle de flux.
+
+**2. ⚠️ `refresh()` ne notifie PAS les listeners.**
+`V1TraitMixin.refresh()` (`traits/v1/common.py` l.76-100) appelle `merge_trait_values()` et **jette** son
+booléen de retour : aucun `_notify_update()`. Conséquence directe pour un superviseur : après un sondage
+périodique, il faut **publier explicitement** — s'abonner ne suffit pas à couvrir les deux chemins.
+
+**3. Le filtre « valeur réellement changée » est déjà côté librairie.**
+`DpsDataConverter.update_from_dps()` (`traits/common.py` l.97-118) ne renvoie vrai que si un champ a
+changé, et `_notify_update()` n'est appelé que dans ce cas. Inutile de rajouter un diff côté démon pour
+éviter les réveils inutiles.
+
+**4. ⚠️ Tous les champs d'état ne sont PAS poussés — la progression de nettoyage, notamment.**
+Seuls les champs portant une métadonnée `dps` remontent en push (`data/v1/v1_containers.py` l.82-128) :
+`error_code`(120), `state`(121), `battery`(122), `fan_power`(123), `water_box_mode`(124),
+`charge_status`(133), `dry_status`(134).
+
+**N'en font pas partie** : `clean_area`, `clean_time`, `clean_percent`, `in_cleaning`. Or c'est
+précisément ce qu'un utilisateur regarde pendant un cycle. ⇒ **le push seul ne donne pas une progression
+fluide** ; c'est le sondage périodique qui la porte. Un plugin qui miserait tout sur le push afficherait
+un dashboard figé pendant le nettoyage.
+
+**5. Le push arrive uniquement par MQTT**, jamais par le canal TCP local : `_on_local_message` n'alimente
+pas `_dps_listeners` (`devices/rpc/v1_channel.py` l.376-379, l.545-549). La lib maintient volontairement
+l'abonnement MQTT même quand le local est disponible. Corollaire : si l'abonnement MQTT tombe alors que
+le TCP local reste actif, `is_connected` **reste vrai** et le sondage continue — la perte du temps réel
+est alors **silencieuse**, seul le sondage garantit un plancher.
+
+**6. Coût quota : nul.** Les seuls limiteurs de la lib sont dans `web_api.py` (`_login_limiter`,
+`_home_data_limiter`). `status.refresh()` passe par `RpcChannel` : aucun limiteur, aucun HTTPS. Sonder
+toutes les 30 s ne consomme **aucun** quota — le seul coût reste le `homedata` de construction du
+`DeviceManager` (cf. `jeeroborock-cloud-api.md` § 5).
+
+> ⚠️ L'espace de noms `roborock.devices` est déclaré **« experimental and subject to breaking changes
+> without notice »** (`devices/device.py` l.2-5). D'où la garde `getattr(status, "add_update_listener",
+> None)` + `callable()` avec repli sur le sondage seul : la feature se dégrade en latence, elle ne casse
+> pas.
+
 ## 4. États disponibles — `StatusTrait` (`get_status`)
 
 Champs de `StatusV2` (`roborock/data/v1/v1_containers.py`) les plus exploitables :

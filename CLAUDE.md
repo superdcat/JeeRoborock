@@ -155,7 +155,13 @@ Disposition Jeedom fixe (type MVC), nommée d'après l'id `jeeroborock`.
   données, aucune opération enregistrée). UC09 a posé **`routines.py`** (`listerRoutines`,
   `executerRoutine` — chemin HTTPS pur, cf. ci-dessous) et **`textes.py`** (neutralisation et troncature
   des chaînes d'origine cloud, factorisée depuis `equipements.py`/`robots.py` à la 3ᵉ occurrence :
-  **tout nouveau module qui journalise ou renvoie une chaîne venue du cloud l'importe de là**) :
+  **tout nouveau module qui journalise ou renvoie une chaîne venue du cloud l'importe de là**). UC10 a
+  posé **`supervision.py`** — le **superviseur temps réel**, seul module du démon qui n'enregistre
+  **aucune** opération RPC : il vit en tâches de fond (une `_sonde` asyncio **par robot**, plus un
+  écouteur de push sur le trait `status`) et publie ses lots par le callback `jeedom_com`. Son état vit
+  dans `contexte['superviseur']` ; `demarrer()` est **idempotente** (à empreinte de session identique,
+  une sonde vivante n'est ni annulée ni recréée — c'est une exigence d'acceptation, pas une
+  optimisation) : **un robot en défaut ne doit jamais interrompre le suivi d'un autre**. Bilan :
   **un module par domaine fonctionnel**, enregistré explicitement depuis
   `jeeroborockd.py` — pas par effet de bord d'import. L'instance `RoborockApiClient` vit dans
   `contexte['auth']` et **doit** survivre entre l'envoi du code et sa validation (`header_clientid` dérive
@@ -164,9 +170,14 @@ Disposition Jeedom fixe (type MVC), nommée d'après l'id `jeeroborock`.
   première lecture et mémorisé dans `contexte['gestionnaire']` (avec une empreinte de session qui le fait
   reconstruire quand le `userData` change). ⚠️ Il porte le `HomeData` complet, **donc les `local_key`** :
   ne jamais le sérialiser ni le journaliser. ⚠️ Le construire coûte un appel **`homedata`** (quota dur) —
-  **toute UC qui a besoin du canal V1 passe par `robots.obtenir_appareil()`** et ne rappelle
+  **toute UC qui a besoin du canal V1 passe par `robots.obtenir_appareil()`** — ou, quand c'est le
+  gestionnaire lui-même qu'il faut (énumérer les robots du compte, comme le superviseur d'UC10), par
+  **`robots.obtenir_gestionnaire()`** — et ne rappelle
   **jamais** `create_device_manager()`, sous peine de doubler la consommation de quota et d'ouvrir une
-  seconde session MQTT sur le même compte.
+  seconde session MQTT sur le même compte. ⚠️ Corollaire d'UC10, contre-intuitif : le superviseur reçoit
+  le dict **brut** envoyé par le PHP, **jamais** `contexte['session']`, dont le `userData` a été
+  ré-encodé et peut différer octet à octet — l'empreinte serait alors recalculée et le gestionnaire
+  reconstruit à chaque alternance, soit **2 `homedata` et 2 sessions MQTT** sans que rien ne le signale.
   ⚠️ **Mais toutes les UC n'ont pas besoin de ce canal.** Les **routines** (UC09) s'exécutent par un
   **POST HTTPS signé**, sur un chemin **volontairement disjoint** : `routines.py` n'importe pas `robots.py`
   et ne touche jamais `contexte['gestionnaire']`. C'est ce qui les rend exécutables **robot hors ligne** —
@@ -403,9 +414,11 @@ traduction : la clé EST le texte français). Langues cibles usuelles : **`en_US
     test de connexion → découverte des équipements → commandes info → commandes d'action →
     **routines (« usages »)**. L'UC 09 est l'exigence explicite de l'utilisateur ; elle passe par du pur
     HTTPS relayé par le cloud et fonctionne donc **même si le canal MQTT du robot est indisponible**.
-  - **`post-mvp/05-temps-reel-et-robustesse/`** (10→11) — push MQTT et fraîcheur, puis robustesse et
-    ré-authentification. **Premier domaine à traiter après le MVP** : le MVP s'arrête volontairement à un
-    rafraîchissement à la demande.
+  - **`post-mvp/05-temps-reel-et-robustesse/`** (10→11) — push MQTT et fraîcheur (UC10), puis robustesse
+    et ré-authentification (UC11). Depuis UC10, le plugin ne s'arrête plus à un rafraîchissement à la
+    demande : le démon porte la cadence (30 s en nettoyage / 60 s au repos) et le cron PHP s'est reconverti
+    en **chien de garde de fraîcheur** (bascule « déconnecté » au-delà de 180 s, réarmement du superviseur
+    sous garde anti-rafale de 600 s).
   - **`post-mvp/10-etats-detailles/`** (12→15) — consommables, station d'accueil, erreurs, widget tuile.
   - **`post-mvp/20-carte-et-pieces/`** (16→19) — pièces/segments, cartes multiples, image, vue carte.
     Domaine le plus coûteux techniquement.

@@ -64,6 +64,14 @@ class jeeroborock extends eqLogic {
   const DUREE_CACHE_SYNCHRO_ROUTINES = 300;  // s, TTL de l'horodatage
   const CLE_CACHE_SYNCHRO_ROUTINES   = 'jeeroborock::synchroRoutines::';
 
+  // Rafraîchissement temps réel et fraîcheur (UC10). Le démon porte la cadence et le push ;
+  // le cron PHP se limite à un chien de garde de fraîcheur (chemin de secours, coût nul en
+  // nominal, cf. cron()).
+  const DELAI_FRAICHEUR_S               = 180;   // s, garde avant bascule déconnecté
+  const DELAI_MIN_RELANCE_SUPERVISION   = 600;   // s, anti-rafale du réarmement
+  const DUREE_CACHE_RELANCE_SUPERVISION = 1800;  // s, TTL de l'horodatage
+  const CLE_CACHE_RELANCE_SUPERVISION   = 'jeeroborock::relanceSupervision';
+
   // Attention : userData contient le jeton de session et les identifiants dérivés rriot.
   // Ne jamais définir preConfig_userData / postConfig_userData : une exception levée depuis
   // une frame qui reçoit ce paramètre exposerait le secret via displayException() (trace complète
@@ -340,6 +348,10 @@ class jeeroborock extends eqLogic {
       config::save('baseUrl', $baseUrl, 'jeeroborock');
       config::save('userData', $userData, 'jeeroborock');
       self::oublierInventaireCompte();
+      // Arme le suivi temps réel (UC10) : le verrou de session est déjà relâché par
+      // l'AJAX appelant, restaurerSessionDemon() relit elle-même la configuration
+      // (le blob userData n'entre pas en argument d'une nouvelle frame).
+      self::restaurerSessionDemon();
       return true;
     } catch (Throwable $e) {
       log::add('jeeroborock', 'error', 'enregistrerSession : échec de persistance, consultez la configuration du plugin');
@@ -685,10 +697,68 @@ class jeeroborock extends eqLogic {
     return '';
   }
 
-  /*
-  * Fonction exécutée automatiquement toutes les minutes par Jeedom
-  public static function cron() {}
-  */
+  // Chien de garde de fraîcheur (UC10). Le démon porte désormais la cadence de
+  // rafraîchissement (push + sonde) ; ce cron ne va plus chercher l'état lui-même. Il se
+  // contente de vérifier que la donnée reçue pour chaque robot n'est pas trop ancienne, et
+  // de demander un réarmement du superviseur démon si besoin. NE LÈVE JAMAIS (appelée par
+  // le core sans try/catch) : chaque équipement est traité sous try/catch (robustesse cron).
+  public static function cron() {
+    if (!self::estCompteLie()) {
+      return;
+    }
+
+    $reamorcageNecessaire = false;
+
+    foreach (eqLogic::byType('jeeroborock', true) as $eqLogic) {
+      try {
+        $cmd = $eqLogic->getCmd('info', 'derniere_maj');
+        if (!is_object($cmd)) {
+          // Jamais lu : on ne sait rien affirmer sur la connexion (D-10-6), on demande
+          // seulement un réarmement.
+          $reamorcageNecessaire = true;
+          continue;
+        }
+
+        // getCollectDate() est un piège (R16) : il fabrique "maintenant" pour une commande
+        // jamais écrite. getCache('collectDate', '') renvoie '' quand l'entrée est absente.
+        $collecte = trim((string) $cmd->getCache('collectDate', ''));
+        if ($collecte == '') {
+          $reamorcageNecessaire = true;
+          continue;
+        }
+
+        $horodatage = strtotime($collecte);
+        if ($horodatage === false) {
+          continue;
+        }
+
+        if ((time() - $horodatage) > self::DELAI_FRAICHEUR_S) {
+          $reamorcageNecessaire = true;
+          $eqLogic->checkAndUpdateCmd('connecte', 0);
+          log::add('jeeroborock', 'info', 'cron : donnée périmée pour l\'équipement ' . $eqLogic->getId() . ', bascule en déconnecté');
+        }
+      } catch (Throwable $e) {
+        log::add('jeeroborock', 'error', 'cron : échec sur l\'équipement ' . $eqLogic->getId() . ' : ' . self::nettoyerPourLog(substr($e->getMessage(), 0, 256)));
+      }
+    }
+
+    if (!$reamorcageNecessaire) {
+      return;
+    }
+
+    $infos = self::deamon_info();
+    if ($infos['state'] != 'ok') {
+      // Le redémarrage du démon lui-même est l'affaire de plugin::checkDeamon().
+      log::add('jeeroborock', 'debug', 'cron : réarmement différé, démon non actif');
+      return;
+    }
+
+    if (self::relanceSupervisionRecente()) {
+      return;
+    }
+    self::marquerRelanceSupervision();
+    self::restaurerSessionDemon();
+  }
 
   /*
   * Fonction exécutée automatiquement toutes les 5 minutes par Jeedom
@@ -913,6 +983,53 @@ class jeeroborock extends eqLogic {
     if (!empty($_reponse['etatLu'])) {
       $this->appliquerCapacites(isset($_reponse['capacites']) && is_array($_reponse['capacites']) ? $_reponse['capacites'] : array());
       $this->appliquerValeurs(isset($_reponse['etat']) && is_array($_reponse['etat']) ? $_reponse['etat'] : array());
+    }
+  }
+
+  // Point d'entrée du lot poussé par le superviseur du démon (UC10, callback jeedom_com).
+  // Le lot a exactement la forme de la réponse lireEtat : appliquerEtatPartiel() (ci-dessus)
+  // le consomme tel quel, sans nouveau chemin d'écriture. NE LÈVE JAMAIS (appelée depuis un
+  // point d'entrée externe, core/php/jeeJeeroborock.php, déjà sous try/catch global mais
+  // qui ne doit jamais voir une exception d'un robot en bloquer un autre).
+  public static function traiterPoussee($_robots) {
+    if (!is_array($_robots)) {
+      log::add('jeeroborock', 'warning', 'traiterPoussee : lot invalide (pas un tableau)');
+      return;
+    }
+
+    $compteur = 0;
+    foreach ($_robots as $cle => $lot) {
+      if ($compteur >= self::NB_MAX_ROBOTS_SYNCHRO) {
+        log::add('jeeroborock', 'warning', 'traiterPoussee : lot tronqué au-delà de ' . self::NB_MAX_ROBOTS_SYNCHRO . ' robots');
+        break;
+      }
+      $compteur++;
+
+      // Cast explicite : json_decode(..., true) convertit une clé de duid purement
+      // numérique en clé entière (array_slice() la réindexerait, d'où le foreach+compteur).
+      $duid = trim((string) $cle);
+      if (!self::duidValide($duid)) {
+        log::add('jeeroborock', 'warning', 'traiterPoussee : duid invalide ignoré : ' . self::nettoyerPourLog(substr($duid, 0, 128)));
+        continue;
+      }
+      if (!is_array($lot)) {
+        continue;
+      }
+
+      $eqLogic = eqLogic::byLogicalId($duid, 'jeeroborock');
+      if (!is_object($eqLogic)) {
+        log::add('jeeroborock', 'debug', 'traiterPoussee : robot sans équipement Jeedom ignoré');
+        continue;
+      }
+      if ($eqLogic->getIsEnable() != 1) {
+        continue;
+      }
+
+      try {
+        $eqLogic->appliquerEtatPartiel($lot);
+      } catch (Throwable $e) {
+        log::add('jeeroborock', 'error', 'traiterPoussee : échec sur l\'équipement ' . $eqLogic->getId() . ' : ' . self::nettoyerPourLog(substr($e->getMessage(), 0, 256)));
+      }
     }
   }
 
@@ -1357,6 +1474,31 @@ class jeeroborock extends eqLogic {
       cache::set(self::CLE_CACHE_SYNCHRO_ROUTINES . $this->getId(), time(), self::DUREE_CACHE_SYNCHRO_ROUTINES);
     } catch (Throwable $e) {
       log::add('jeeroborock', 'warning', 'marquerSynchroRoutines : échec de mise en cache : ' . $e->getMessage());
+    }
+  }
+
+  // Garde anti-rafale du réarmement du superviseur démon (UC10, D-10-1). Calque exact de
+  // synchroRoutinesRecente()/marquerSynchroRoutines() (UC09), mais globale au plugin (une
+  // seule clé de cache, pas par équipement) : cron() réarme le superviseur pour l'ensemble
+  // des robots en une seule fois. NE LÈVE JAMAIS.
+  private static function relanceSupervisionRecente() {
+    try {
+      $horodatage = cache::byKey(self::CLE_CACHE_RELANCE_SUPERVISION)->getValue('');
+      if ($horodatage === '' || !is_numeric($horodatage)) {
+        return false;
+      }
+      return (time() - intval($horodatage)) < self::DELAI_MIN_RELANCE_SUPERVISION;
+    } catch (Throwable $e) {
+      log::add('jeeroborock', 'warning', 'relanceSupervisionRecente : échec de lecture du cache : ' . $e->getMessage());
+      return false;
+    }
+  }
+
+  private static function marquerRelanceSupervision() {
+    try {
+      cache::set(self::CLE_CACHE_RELANCE_SUPERVISION, time(), self::DUREE_CACHE_RELANCE_SUPERVISION);
+    } catch (Throwable $e) {
+      log::add('jeeroborock', 'warning', 'marquerRelanceSupervision : échec de mise en cache : ' . $e->getMessage());
     }
   }
 

@@ -36,9 +36,16 @@ try {
     die();
   }
 
+  $traite = false;
   if (isset($resultat['versionLibrairie'])) {
     jeeroborock::traiterVersionLibrairie($resultat['versionLibrairie']);
-  } else {
+    $traite = true;
+  }
+  if (isset($resultat['robots']) && is_array($resultat['robots'])) {
+    jeeroborock::traiterPoussee($resultat['robots']);
+    $traite = true;
+  }
+  if (!$traite) {
     log::add('jeeroborock', 'debug', 'Callback demon : cles recues ' . jeeroborock::nettoyerPourLog(implode(', ', array_keys($resultat))));
   }
 } catch (Throwable $e) {
