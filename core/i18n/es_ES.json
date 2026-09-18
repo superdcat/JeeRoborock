@@ -36,6 +36,18 @@
     },
     "plugins/jeeroborock/core/class/jeeroborock.class.php": {
         "Robot Roborock %s": "Robot Roborock %s",
+        "État": "Estado",
+        "Code d'état": "Código de estado",
+        "Batterie": "Batería",
+        "En nettoyage": "Limpiando",
+        "Erreur": "Error",
+        "Code d'erreur": "Código de error",
+        "Surface nettoyée": "Superficie limpiada",
+        "Durée de nettoyage": "Duración de limpieza",
+        "Avancement": "Progreso",
+        "En ligne": "En línea",
+        "Connecté": "Conectado",
+        "Dernière mise à jour": "Última actualización",
         "L'adresse e-mail du compte Roborock est invalide.": "La dirección de correo electrónico de la cuenta Roborock no es válida.",
         "L'adresse e-mail du compte Roborock a changé : le compte a été délié, demandez un nouveau code de connexion.": "La dirección de correo electrónico de la cuenta Roborock ha cambiado: la cuenta se ha desvinculado, solicite un nuevo código de conexión.",
         "Le port du canal local doit être un nombre entier compris entre 1024 et 65535.": "El puerto del canal local debe ser un número entero comprendido entre 1024 y 65535.",
@@ -107,7 +119,11 @@
         "Synchronisation terminée : %1$s équipement(s) créé(s), %2$s mis à jour.": "Sincronización completada: %1$s dispositivo(s) creado(s), %2$s actualizado(s).",
         "Modèle non supporté par cette version du plugin : %s": "Modelo no compatible con esta versión del plugin: %s",
         "Robot(s) partagé(s) par un autre compte : %s": "Robot(s) compartido(s) por otra cuenta: %s",
-        "%s robot(s) n'ont pas pu être enregistrés dans Jeedom. Consultez le log du plugin.": "%s robot(s) no se pudieron registrar en Jeedom. Consulte el registro del plugin."
+        "%s robot(s) n'ont pas pu être enregistrés dans Jeedom. Consultez le log du plugin.": "%s robot(s) no se pudieron registrar en Jeedom. Consulte el registro del plugin.",
+        "Équipement introuvable ou non géré par ce plugin.": "Dispositivo no encontrado o no gestionado por este plugin.",
+        "Cet équipement est désactivé : activez-le avant de rafraîchir son état.": "Este dispositivo está desactivado: actívelo antes de actualizar su estado.",
+        "État rafraîchi — %s nouvelle(s) commande(s) créée(s). Rechargez la page pour les voir.": "Estado actualizado — %s nuevo(s) comando(s) creado(s). Recargue la página para verlos.",
+        "État rafraîchi.": "Estado actualizado."
     },
     "plugins/jeeroborock/desktop/php/jeeroborock.php": {
         "401 - Accès non autorisé": "401 - Acceso no autorizado",
@@ -144,10 +160,27 @@
         "Informations": "Información",
         "Ces informations proviennent du compte Roborock et sont rafraîchies par la synchronisation des équipements.": "Esta información proviene de la cuenta Roborock y se actualiza mediante la sincronización de dispositivos.",
         "Description": "Descripción",
-        "Ajouter une commande": "Añadir un comando",
+        "Rafraîchir l'état": "Actualizar estado",
         "Nom": "Nombre",
         "Type": "Tipo",
         "Etat": "Estado",
         "Actions": "Acciones"
+    },
+    "plugins/jeeroborock/desktop/js/jeeroborock.js": {
+        "Nom de la commande": "Nombre del comando",
+        "Choisir une icône": "Elegir un icono",
+        "Commande info liée": "Comando de información vinculado",
+        "Aucune": "Ninguna",
+        "Afficher": "Mostrar",
+        "Historiser": "Guardar historial",
+        "Inverser": "Invertir",
+        "Min": "Mín",
+        "Max": "Máx",
+        "Unité": "Unidad",
+        "Tester": "Probar",
+        "Supprimer la commande": "Eliminar comando",
+        "Sélectionnez un robot avant de rafraîchir.": "Seleccione un robot antes de actualizar.",
+        "Rafraîchissement en cours…": "Actualizando…",
+        "Le démon ne répond pas.": "El demonio no responde."
     }
 }

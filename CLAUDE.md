@@ -143,11 +143,20 @@ Disposition Jeedom fixe (type MVC), nommée d'après l'id `jeeroborock`.
   `POST /rpc` + `GET /sante`) et le mapping des exceptions dans **`erreurs.py`** ; `jeeroborockd.py` ne
   garde que le cycle de vie. Ajouter une opération = `canal.enregistrer('<nom>', <coroutine>)`.
   UC04 a posé **`authentification.py`** (opérations `demanderCode`, `validerCode`, `restaurerSession`,
-  rejointes en UC05 par `etatCompte`) et UC06 **`equipements.py`** (`decouvrirEquipements`) :
+  rejointes en UC05 par `etatCompte`), UC06 **`equipements.py`** (`decouvrirEquipements`) et UC07
+  **`robots.py`** (`lireEtat`) + **`libelles.py`** (tables de libellés FR des états et erreurs, pures
+  données, aucune opération enregistrée) :
   **un module par domaine fonctionnel**, enregistré explicitement depuis
   `jeeroborockd.py` — pas par effet de bord d'import. L'instance `RoborockApiClient` vit dans
   `contexte['auth']` et **doit** survivre entre l'envoi du code et sa validation (`header_clientid` dérive
   d'un identifiant régénéré à chaque instanciation) ; la session restaurée vit dans `contexte['session']`.
+  UC07 a posé le **canal vers le robot** : un **`DeviceManager` unique**, construit paresseusement à la
+  première lecture et mémorisé dans `contexte['gestionnaire']` (avec une empreinte de session qui le fait
+  reconstruire quand le `userData` change). ⚠️ Il porte le `HomeData` complet, **donc les `local_key`** :
+  ne jamais le sérialiser ni le journaliser. ⚠️ Le construire coûte un appel **`homedata`** (quota dur) —
+  **toute UC suivante qui a besoin du robot passe par `robots.obtenir_appareil()`** et ne rappelle
+  **jamais** `create_device_manager()`, sous peine de doubler la consommation de quota et d'ouvrir une
+  seconde session MQTT sur le même compte.
   UC06 a extrait de `authentification.py` le module **`session.py`** : import gardé de la librairie
   (`IMPORT_OK`, `UserData`, `RoborockApiClient`), `creer_client()` et la sérialisation du `UserData`
   (`encoder_user_data`/`decoder_user_data`). **Tout nouveau module qui a besoin d'une session lit ces

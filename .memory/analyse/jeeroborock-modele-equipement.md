@@ -66,12 +66,25 @@ Convention : `logicalId` en minuscules sans accent ; libellés français ; `type
 | `en_nettoyage` | info | binary | — | dérivé (`in_cleaning` / `state`) | |
 | `erreur` | info | string | — | `status.error_code` (libellé) | vide si aucune erreur |
 | `erreur_code` | info | numeric | — | `status.error_code` | |
-| `surface_nettoyee` | info | numeric | m² | `status.clean_area` (cm² → m²) | cycle courant |
+| `surface_nettoyee` | info | numeric | m² | `status.square_meter_clean_area` (⚠️ `clean_area` est en **mm²** : diviseur 1 000 000, arrondi 1 décimale — ne PAS reconvertir à la main, UC07) | cycle courant |
 | `duree_nettoyage` | info | numeric | min | `status.clean_time` (s → min) | cycle courant |
 | `avancement` | info | numeric | % | `status.clean_percent` | **conditionnel** (`is_support_clean_estimate`) |
 | `en_ligne` | info | binary | — | `HomeDataDevice.online` / dps `OFFLINE_STATUS` | vu du cloud |
 | `connecte` | info | binary | — | `device.is_connected` | canal robot du démon |
 | `derniere_maj` | info | string | — | horodatage de la dernière donnée reçue | **fraîcheur** : sert au mode dégradé |
+
+> ⚠️ **Créer une commande seulement si la capacité existe : DEUX familles, deux critères (UC07).**
+> `DeviceFeaturesTrait.is_field_supported()` (`traits/v1/device_features.py` l. 72-99) renvoie **`True`
+> par défaut** quand le champ n'a **aucune** métadonnée. Un critère uniforme
+> `valeur is not None OR is_field_supported(…)` vaut donc `True` **en permanence** pour ces champs-là.
+> - **Champs à métadonnée** (`state`, `battery`, `error_code`, `clean_percent`) :
+>   `is_field_supported(…) or (valeur is not None)`. La seconde branche est un garde-fou — pour les champs
+>   annotés `dps`, `supported_schema_ids` vaut `set()` dès que `HomeDataProduct.schema` est `None`, et
+>   **aucune** commande de base ne serait créée.
+> - **Champs sans métadonnée** (`clean_area`, `clean_time`) : **`valeur is not None` seul**, sans jamais
+>   appeler `is_field_supported()`.
+>
+> Ne jamais unifier les deux en une expression unique.
 
 ### 2.2 Actions
 

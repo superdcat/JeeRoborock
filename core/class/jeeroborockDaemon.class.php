@@ -26,6 +26,7 @@ class jeeroborockDaemon {
   const TIMEOUT_SESSION      = 3;     // s, restaurerSession ne fait aucune I/O reseau
   const TIMEOUT_COMPTE       = 20;    // s, etatCompte (1 a 2 requetes HTTPS nominales, 6 au pire)
   const TIMEOUT_DECOUVERTE   = 20;    // s, decouvrirEquipements (2 requetes HTTPS nominales)
+  const TIMEOUT_ETAT         = 35;    // s, lireEtat (homedata + MQTT + get_status, cf. UC07 § Budget)
   const TIMEOUT_MAX          = 60;    // s, plafond dur - garantit AC1 quel que soit l'appelant
   const TIMEOUT_CONNEXION_MS = 2000;  // ms, connexion loopback
   const MARGE_BUDGET_MS      = 1000;  // ms laissees au demon pour serialiser sa reponse
@@ -182,6 +183,26 @@ class jeeroborockDaemon {
     // categorie d'erreur oubliee.
     log::add('jeeroborock', 'warning', 'Code d\'erreur inconnu du plugin recu du demon : ' . $_codeErreur);
     return new jeeroborockException($_codeErreur, __('Erreur inattendue du démon. Consultez le log du plugin.', __FILE__));
+  }
+
+  // Fabrique une exception typee a partir d'un code stable de FAMILLE C (etat metier), pour un
+  // refus decide par le PHP lui-meme (UC07). Retourne l'exception, ne la leve PAS : utiliser
+  //   throw jeeroborockDaemon::erreurLocale('DEVICE_OFFLINE');
+  // Les codes de canal (familles A/B) sont REFUSES : ils ne peuvent provenir que du transport ou
+  // du protocole (AC5 d'UC03). Le filtrage delegue a estErreurCanal() pour ne PAS creer une
+  // troisieme copie de la liste des codes de canal (cf. Dette d'UC03).
+  public static function erreurLocale($_code) {
+    $messages = self::tableMessages();
+    if (!isset($messages[$_code])) {
+      log::add('jeeroborock', 'warning', 'erreurLocale : code inconnu de la table de messages : ' . $_code);
+      $_code = 'INTERNAL_ERROR';
+    }
+    $exception = new jeeroborockException($_code, $messages[$_code]);
+    if ($exception->estErreurCanal()) {
+      log::add('jeeroborock', 'warning', 'erreurLocale : code de canal refuse pour un refus local : ' . $_code);
+      return new jeeroborockException('INTERNAL_ERROR', $messages['INTERNAL_ERROR']);
+    }
+    return $exception;
   }
 
   // Table code stable -> litterale __(). Jamais __($variable) : l'extraction i18n est un

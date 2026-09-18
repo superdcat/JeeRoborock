@@ -105,6 +105,26 @@ Valeurs de référence pour l'`a135` (source ioBroker, `src/lib/features/vacuum/
 Côté `python-roborock`, `a135` est reconnu (`const.ROBOROCK_QREVO_CURV`) et rattaché au profil
 `RoborockProductNickname.VIVIAN` (`a134/a135/a155/a156`).
 
+### ⚠️ 4.bis Un code inconnu est écrasé SILENCIEUSEMENT par la librairie (vérifié 7.8.0, UC07)
+
+`RoborockEnum._missing_` (`roborock/data/code_mappings.py` l. 9-40) ne lève jamais sur un code non
+répertorié : il retombe sur le membre `unknown` **s'il existe**, et sinon sur le **premier membre déclaré**.
+
+| Enum | Membre `unknown` ? | Conséquence d'un code inconnu |
+|---|---|---|
+| `RoborockStateCode` | **oui** (`unknown = 0`, `v1_code_mappings.py` l. 403) | l'état devient **0** ; le code brut est **perdu** |
+| `RoborockErrorCode` | **NON** (l. 190-245) | retombe sur `none = 0` ⇒ **une erreur inconnue se présente comme « aucune erreur »** |
+
+Seule trace du code réel : la librairie journalise `Missing Roborock<X>Code code: N`. Non corrigeable sans
+réimplémenter la désérialisation. **À vérifier en recette** en provoquant une erreur réelle.
+
+Deux autres pièges de ces enums :
+- `display_name` rend un **identifiant anglais snake_case** (`"charging_complete"`), **pas** un libellé
+  présentable — un libellé utilisateur doit être composé par le plugin.
+- Des codes distincts partagent un `display_name` (`washing_the_mop_2 = (25, "washing_the_mop")`,
+  `mopping_roller_2 = (45, "mopping_roller_1")`) ⇒ **indexer toute table de libellés sur `display_name`,
+  jamais sur `.name`**.
+
 ## 5. Consommables — `ConsumableTrait` (`get_consumable`)
 
 `Consumable` : `main_brush_work_time` (125), `side_brush_work_time` (126), `filter_work_time` (127),

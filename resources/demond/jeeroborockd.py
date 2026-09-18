@@ -39,6 +39,7 @@ from aiohttp import web
 
 import authentification
 import equipements
+import robots
 from canal import construire_application
 from jeedom.jeedom import jeedom_com, jeedom_utils
 
@@ -141,12 +142,15 @@ async def principal_async(args):
         "demarrage": time.time(),
         "auth": None,       # UC04 : {'client': RoborockApiClient, 'email': str} pendant un login en cours
         "session": None,    # UC04 : {'userData': str, 'baseUrl': str, 'email': str} apres succes
+        "gestionnaire": None,  # UC07 : porte le DeviceManager et sa session MQTT - contient des
+                                # secrets (local_key via le HomeData mis en cache), ne jamais serialiser
     }
 
     # Enregistrement EXPLICITE (pas par effet de bord d'import) : ordre visible, echec
     # visible au demarrage plutot qu'un canal muet sur une operation manquante.
     authentification.enregistrer_operations()
     equipements.enregistrer_operations()
+    robots.enregistrer_operations()
 
     application = construire_application(args.apikey, contexte)
     try:
@@ -185,6 +189,7 @@ async def principal_async(args):
             os.remove(args.pid)
         except OSError:
             pass
+        await robots.fermer_gestionnaire(contexte)
         await site.stop()
         await executeur.cleanup()
 

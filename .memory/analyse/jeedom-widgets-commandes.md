@@ -117,3 +117,30 @@ navigateur) → il peut récupérer la ressource externe et la relayer.
   aucun proxy, aucune dépendance, mais moins visuel. Décider selon le besoin.
 - Voir aussi `jeedom-panel-page-menu.md` § 4 : dans une **page-panneau** (rendue serveur), on peut embarquer
   l'image externe en **`data:` URI inline** (autorisé par la CSP), sans endpoint proxy.
+
+## 8. i18n — un `.js` de plugin EST traduit (vérifié contre le core, UC07)
+
+Contrairement à une idée reçue (et à une affirmation erronée de la spec technique UC03, depuis corrigée),
+un fichier JavaScript de plugin **passe bien par le moteur i18n** :
+
+1. `core/php/utils.inc.php` l. 95-103 — `include_file(..., 'js')` ne sert **directement** que les fichiers
+   sous `3rdparty` ou en `*.min.js` ; **tout autre `.js`** est servi via `core/php/getResource.php`.
+2. `core/php/getResource.php` l. 49-54 — pour une extension `js` hors `3rdparty` :
+   `translate::exec(file_get_contents($file), init('file'), true)`.
+3. `core/class/translate.class.php` l. 98, puis l. 134-161 — remplacement des clés, indexées sur le chemin
+   passé en `file` (donc `plugins/<id>/desktop/js/<id>.js`).
+
+**Deux conséquences pour tout `.js` de plugin :**
+- C'est un **fichier rendu** : aucune double accolade ouvrante littérale hors clé i18n — **commentaires et
+  littéraux objet compris**.
+- ⚠️ **Le délimiteur de chaîne s'inverse par rapport à un fichier PHP rendu.** `getResource.php` est le
+  **seul** appelant qui passe `$_backslash = true`, ce qui échappe les apostrophes **de la traduction**
+  (`translate.class.php` l. 155-157). Les littérales traduisibles d'un `.js` s'écrivent donc en
+  **apostrophes simples** ; dans un `configuration.php`/`.txt` (rendu **sans** ce drapeau) c'est l'inverse,
+  **guillemets doubles**.
+- Corollaire pratique : **éviter une apostrophe dans le texte français d'une clé de `.js`** — elle devrait
+  être échappée dans le littéral, et l'antislash se retrouverait **à l'intérieur de la clé i18n**.
+  Reformuler est préférable.
+
+⚠️ `.claude/scripts/verif-plugin.py` **ne contrôle pas** le délimiteur dans les `.js` (son contrôle porte
+sur `configuration.txt`) : relecture manuelle.

@@ -204,6 +204,24 @@ try {
         'echecs'       => $r['echecs'],
       ));
       break;
+    case 'rafraichirEtat':
+      // Endpoint admin assumé : l'action ouvre le canal du robot et peut durer
+      // jusqu'à 35 s (UC07, TIMEOUT_ETAT).
+      $eqLogic = eqLogic::byId(intval(init('id')));
+      if (!($eqLogic instanceof jeeroborock)) {
+        ajax::error(__('Équipement introuvable ou non géré par ce plugin.', __FILE__));
+        break;
+      }
+      if ($eqLogic->getIsEnable() == 0) {
+        ajax::error(__('Cet équipement est désactivé : activez-le avant de rafraîchir son état.', __FILE__));
+        break;
+      }
+      $r = $eqLogic->rafraichirEtat();
+      $message = ($r['cmdCreees'] > 0)
+        ? sprintf(__('État rafraîchi — %s nouvelle(s) commande(s) créée(s). Rechargez la page pour les voir.', __FILE__), $r['cmdCreees'])
+        : __('État rafraîchi.', __FILE__);
+      ajax::success(array('message' => $message, 'cmdCreees' => intval($r['cmdCreees'])));
+      break;
     default:
       throw new Exception(__('Aucune méthode correspondante à', __FILE__) . ' : ' . init('action'));
   }

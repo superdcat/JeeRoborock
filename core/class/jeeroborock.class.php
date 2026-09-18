@@ -50,6 +50,11 @@ class jeeroborock extends eqLogic {
   const LONGUEUR_MAX_TEXTE_INVENTAIRE = 128;
   const NB_MAX_ROBOTS_SYNCHRO = 64;
 
+  // Lecture de l'état courant d'un robot (UC07). Troncature défensive des libellés
+  // d'état/erreur d'origine démon avant base et DOM (le démon les compose déjà, mais
+  // ils transitent par le canal).
+  const LONGUEUR_MAX_LIBELLE_ETAT = 128;
+
   // Attention : userData contient le jeton de session et les identifiants dérivés rriot.
   // Ne jamais définir preConfig_userData / postConfig_userData : une exception levée depuis
   // une frame qui reçoit ce paramètre exposerait le secret via displayException() (trace complète
@@ -274,6 +279,29 @@ class jeeroborock extends eqLogic {
   private static function texteInventaire($_valeur, $_longueurMax = self::LONGUEUR_MAX_TEXTE_INVENTAIRE) {
     $valeur = trim(self::nettoyerPourLog((string) $_valeur));
     return substr($valeur, 0, $_longueurMax);
+  }
+
+  /*     * ***********************Commandes d'état (UC07)*********************** */
+
+  // Table statique des 12 commandes d'information posées par rafraichirEtat().
+  // Littérales __() DANS la table (jamais __($variable) au point d'usage, l'extraction
+  // i18n est un scan statique). 'min'/'max' absents = pas de bornes (batterie et
+  // avancement seulement).
+  private static function definitionsCommandes() {
+    return array(
+      'etat'             => array('nom' => __('État', __FILE__), 'subType' => 'string', 'unite' => '', 'generic' => '', 'visible' => 1, 'historise' => 0, 'ordre' => 0),
+      'etat_code'        => array('nom' => __('Code d\'état', __FILE__), 'subType' => 'numeric', 'unite' => '', 'generic' => '', 'visible' => 0, 'historise' => 0, 'ordre' => 1),
+      'batterie'         => array('nom' => __('Batterie', __FILE__), 'subType' => 'numeric', 'unite' => '%', 'generic' => 'BATTERY', 'visible' => 1, 'historise' => 1, 'ordre' => 2, 'min' => 0, 'max' => 100),
+      'en_nettoyage'     => array('nom' => __('En nettoyage', __FILE__), 'subType' => 'binary', 'unite' => '', 'generic' => '', 'visible' => 1, 'historise' => 0, 'ordre' => 3),
+      'erreur'           => array('nom' => __('Erreur', __FILE__), 'subType' => 'string', 'unite' => '', 'generic' => '', 'visible' => 1, 'historise' => 0, 'ordre' => 4),
+      'erreur_code'      => array('nom' => __('Code d\'erreur', __FILE__), 'subType' => 'numeric', 'unite' => '', 'generic' => '', 'visible' => 0, 'historise' => 0, 'ordre' => 5),
+      'surface_nettoyee' => array('nom' => __('Surface nettoyée', __FILE__), 'subType' => 'numeric', 'unite' => 'm²', 'generic' => '', 'visible' => 1, 'historise' => 0, 'ordre' => 6),
+      'duree_nettoyage'  => array('nom' => __('Durée de nettoyage', __FILE__), 'subType' => 'numeric', 'unite' => 'min', 'generic' => '', 'visible' => 1, 'historise' => 0, 'ordre' => 7),
+      'avancement'       => array('nom' => __('Avancement', __FILE__), 'subType' => 'numeric', 'unite' => '%', 'generic' => '', 'visible' => 1, 'historise' => 0, 'ordre' => 8, 'min' => 0, 'max' => 100),
+      'en_ligne'         => array('nom' => __('En ligne', __FILE__), 'subType' => 'binary', 'unite' => '', 'generic' => '', 'visible' => 1, 'historise' => 0, 'ordre' => 9),
+      'connecte'         => array('nom' => __('Connecté', __FILE__), 'subType' => 'binary', 'unite' => '', 'generic' => '', 'visible' => 1, 'historise' => 0, 'ordre' => 10),
+      'derniere_maj'     => array('nom' => __('Dernière mise à jour', __FILE__), 'subType' => 'string', 'unite' => '', 'generic' => '', 'visible' => 1, 'historise' => 0, 'ordre' => 11),
+    );
   }
 
   // Persiste la session obtenue par jeeroborockDaemon::appeler('validerCode', ...). NE LEVE
@@ -744,6 +772,227 @@ class jeeroborock extends eqLogic {
   public function postRemove() {
   }
 
+  /*     * ***********************Rafraîchissement de l'état (UC07)************ */
+
+  // Point d'entrée UNIQUE du rafraîchissement d'un robot : synchronise les commandes
+  // (capacités détectées) puis écrit leurs valeurs. À appeler SOUS try/catch PAR
+  // ÉQUIPEMENT dans une boucle (robustesse cron, D-07-9 : aucun cron ne l'appelle
+  // encore au MVP - UC08 branchera la commande action 'rafraîchir' ici, UC10 un cron).
+  public function rafraichirEtat() {
+    $duid = trim((string) $this->getLogicalId());
+    if (!self::duidValide($duid)) {
+      throw jeeroborockDaemon::erreurLocale('DEVICE_UNKNOWN');
+    }
+    if (!self::estCompteLie()) {
+      throw jeeroborockDaemon::erreurLocale('NOT_AUTHENTICATED');
+    }
+
+    $r = jeeroborockDaemon::appeler(
+      'lireEtat',
+      array('userData' => self::getUserData(), 'baseUrl' => self::getBaseUrlCompte(), 'email' => self::getEmailCompte(), 'duid' => $duid),
+      jeeroborockDaemon::TIMEOUT_ETAT
+    );
+
+    // TOUJOURS, avant tout test d'échec : c'est ce qui rend AC6 vrai même robot éteint.
+    $this->appliquerConnexion($r);
+
+    if (empty($r['etatLu'])) {
+      $motif = isset($r['motifEchec']) ? (string) $r['motifEchec'] : '';
+      if (!preg_match('/\A[A-Z0-9_]{1,40}\z/', $motif) || !in_array($motif, array('DEVICE_OFFLINE', 'ROBOROCK_TIMEOUT', 'CONNECTION_FAILED'), true)) {
+        $motif = 'DEVICE_OFFLINE';
+      }
+      log::add('jeeroborock', 'info', 'rafraichirEtat : lecture en échec (' . $motif . ') pour l\'équipement ' . $this->getId());
+      throw jeeroborockDaemon::erreurLocale($motif);
+    }
+
+    $creees = $this->appliquerCapacites(isset($r['capacites']) && is_array($r['capacites']) ? $r['capacites'] : array());
+    $this->appliquerValeurs(isset($r['etat']) && is_array($r['etat']) ? $r['etat'] : array());
+
+    $cmdTotal = 0;
+    foreach (array_keys(self::definitionsCommandes()) as $logicalId) {
+      if (is_object($this->getCmd('info', $logicalId))) {
+        $cmdTotal++;
+      }
+    }
+
+    log::add('jeeroborock', 'debug', 'rafraichirEtat : état rafraîchi pour l\'équipement ' . $this->getId() . ' (' . $creees . ' commande(s) créée(s), ' . $cmdTotal . ' au total)');
+
+    return array('etatLu' => true, 'cmdCreees' => $creees, 'cmdTotal' => $cmdTotal);
+  }
+
+  // Écrit les indicateurs de connexion. TOUJOURS exécutée par rafraichirEtat(), y
+  // compris quand la lecture d'état échoue (AC6). Crée les 3 commandes si besoin
+  // (inconditionnel : ce ne sont pas des capacités robot).
+  private function appliquerConnexion($_reponse) {
+    foreach (array('en_ligne', 'connecte', 'derniere_maj') as $logicalId) {
+      if (!is_object($this->getCmd('info', $logicalId))) {
+        try {
+          $this->creerCommande($logicalId);
+        } catch (Throwable $e) {
+          log::add('jeeroborock', 'error', 'appliquerConnexion : échec de création de la commande ' . $logicalId . ' : ' . self::nettoyerPourLog(substr($e->getMessage(), 0, 256)));
+        }
+      }
+    }
+
+    $this->checkAndUpdateCmd('connecte', !empty($_reponse['connecte']) ? 1 : 0);
+
+    // 'enLigne' n'est écrite que sur un booléen explicite : jamais sur null (on
+    // n'affirme pas "hors ligne" quand l'information n'a simplement pas été relevée).
+    if (isset($_reponse['enLigne']) && is_bool($_reponse['enLigne'])) {
+      $this->checkAndUpdateCmd('en_ligne', $_reponse['enLigne'] ? 1 : 0);
+    }
+
+    // Uniquement quand la lecture a abouti : un horodatage qui ne bouge plus est le
+    // signal visible de données périmées.
+    if (!empty($_reponse['etatLu'])) {
+      $this->checkAndUpdateCmd('derniere_maj', date('Y-m-d H:i:s'));
+    }
+  }
+
+  // Crée ou fait converger la structure des commandes correspondant aux capacités
+  // détectées par le démon (AC4/AC5). Retourne le nombre de commandes CRÉÉES.
+  private function appliquerCapacites($_capacites) {
+    if (!is_array($_capacites)) {
+      return 0;
+    }
+
+    // Une capacité du démon peut porter plusieurs commandes (le code ET le libellé
+    // lisible partagent la même donnée source).
+    $correspondances = array(
+      'etat'           => array('etat', 'etat_code'),
+      'batterie'       => array('batterie'),
+      'enNettoyage'    => array('en_nettoyage'),
+      'erreur'         => array('erreur', 'erreur_code'),
+      'surfaceNettoyee' => array('surface_nettoyee'),
+      'dureeNettoyage' => array('duree_nettoyage'),
+      'avancement'     => array('avancement'),
+    );
+    $definitions = self::definitionsCommandes();
+    $creees = 0;
+
+    foreach ($correspondances as $capacite => $logicalIds) {
+      if (empty($_capacites[$capacite])) {
+        continue;
+      }
+      foreach ($logicalIds as $logicalId) {
+        if (!isset($definitions[$logicalId])) {
+          continue;
+        }
+        try {
+          $definition = $definitions[$logicalId];
+          $cmd = $this->getCmd('info', $logicalId);
+          if (is_object($cmd)) {
+            // Commande déjà présente (AC5, idempotence) : on ne réécrit que le
+            // structurel, jamais name/isVisible/isHistorized/order (personnalisation
+            // utilisateur).
+            $cmd->setType('info');
+            $cmd->setSubType($definition['subType']);
+            $cmd->setUnite($definition['unite']);
+            if ($definition['generic'] != '') {
+              $cmd->setGeneric_type($definition['generic']);
+            }
+            if (isset($definition['min']) && isset($definition['max'])) {
+              $cmd->setConfiguration('minValue', $definition['min']);
+              $cmd->setConfiguration('maxValue', $definition['max']);
+            }
+            $cmd->save();
+          } elseif (is_object($this->creerCommande($logicalId))) {
+            $creees++;
+          }
+        } catch (Throwable $e) {
+          // Troncature à 256 caractères OBLIGATOIRE : cmd::save() peut embarquer
+          // print_r($this, true) dans son message (R-16).
+          log::add('jeeroborock', 'error', 'appliquerCapacites : échec sur la commande ' . $logicalId . ' : ' . self::nettoyerPourLog(substr($e->getMessage(), 0, 256)));
+        }
+      }
+    }
+
+    return $creees;
+  }
+
+  // Écrit les valeurs reçues du démon. Liste blanche FERMÉE de 9 clés, aucune boucle
+  // générique sur $_etat (AC4 : une clé absente laisse la commande à sa valeur
+  // précédente, jamais un défaut).
+  private function appliquerValeurs($_etat) {
+    if (!is_array($_etat)) {
+      return;
+    }
+
+    if (isset($_etat['etatCode']) && is_numeric($_etat['etatCode']) && intval($_etat['etatCode']) >= 0) {
+      $this->checkAndUpdateCmd('etat_code', intval($_etat['etatCode']));
+    }
+    if (isset($_etat['etatLibelle'])) {
+      $this->checkAndUpdateCmd('etat', self::texteInventaire((string) $_etat['etatLibelle'], self::LONGUEUR_MAX_LIBELLE_ETAT));
+    }
+    if (isset($_etat['enNettoyage'])) {
+      $this->checkAndUpdateCmd('en_nettoyage', !empty($_etat['enNettoyage']) ? 1 : 0);
+    }
+    if (isset($_etat['batterie']) && is_numeric($_etat['batterie'])) {
+      $valeur = intval($_etat['batterie']);
+      if ($valeur >= 0 && $valeur <= 100) {
+        $this->checkAndUpdateCmd('batterie', $valeur);
+      }
+    }
+    if (isset($_etat['erreurCode']) && is_numeric($_etat['erreurCode']) && intval($_etat['erreurCode']) >= 0) {
+      $this->checkAndUpdateCmd('erreur_code', intval($_etat['erreurCode']));
+    }
+    if (isset($_etat['erreurLibelle'])) {
+      $this->checkAndUpdateCmd('erreur', self::texteInventaire((string) $_etat['erreurLibelle'], self::LONGUEUR_MAX_LIBELLE_ETAT));
+    }
+    if (isset($_etat['surfaceNettoyeeM2']) && is_numeric($_etat['surfaceNettoyeeM2'])) {
+      $valeur = floatval($_etat['surfaceNettoyeeM2']);
+      if ($valeur >= 0) {
+        $this->checkAndUpdateCmd('surface_nettoyee', $valeur);
+      }
+    }
+    if (isset($_etat['dureeNettoyageMin']) && is_numeric($_etat['dureeNettoyageMin'])) {
+      $valeur = intval($_etat['dureeNettoyageMin']);
+      if ($valeur >= 0) {
+        $this->checkAndUpdateCmd('duree_nettoyage', $valeur);
+      }
+    }
+    if (isset($_etat['avancement']) && is_numeric($_etat['avancement'])) {
+      $valeur = intval($_etat['avancement']);
+      if ($valeur >= 0 && $valeur <= 100) {
+        $this->checkAndUpdateCmd('avancement', $valeur);
+      }
+    }
+  }
+
+  // Crée une commande d'information à partir de sa définition statique. Ne retourne
+  // jamais null pour un logicalId défini (save() lève sur les invariants du core,
+  // laissé remonter à l'appelant qui journalise et tronque, R-16).
+  private function creerCommande($_logicalId) {
+    $definitions = self::definitionsCommandes();
+    if (!isset($definitions[$_logicalId])) {
+      return null;
+    }
+    $definition = $definitions[$_logicalId];
+
+    $cmd = new jeeroborockCmd();
+    $cmd->setEqLogic_id($this->getId());
+    $cmd->setEqType('jeeroborock');
+    $cmd->setLogicalId($_logicalId);
+    $cmd->setName($definition['nom']);
+    $cmd->setType('info');
+    $cmd->setSubType($definition['subType']);
+    $cmd->setUnite($definition['unite']);
+    if ($definition['generic'] != '') {
+      $cmd->setGeneric_type($definition['generic']);
+    }
+    $cmd->setIsVisible($definition['visible']);
+    $cmd->setIsHistorized($definition['historise']);
+    $cmd->setOrder($definition['ordre']);
+    if (isset($definition['min']) && isset($definition['max'])) {
+      $cmd->setConfiguration('minValue', $definition['min']);
+      $cmd->setConfiguration('maxValue', $definition['max']);
+    }
+    // Pas de setTemplate() : save() pose core::default en dashboard/mobile si rien
+    // n'est défini (widgets par défaut au MVP).
+    $cmd->save();
+    return $cmd;
+  }
+
   /*
   * Permet de crypter/décrypter automatiquement des champs de configuration des équipements
   * Exemple avec le champ "Mot de passe" (password)
@@ -775,12 +1024,15 @@ class jeeroborockCmd extends cmd {
 
   /*     * *********************Methode d'instance************************* */
 
-  /*
-  * Permet d'empêcher la suppression des commandes même si elles ne sont pas dans la nouvelle configuration de l'équipement envoyé en JS
+  // Empêche la suppression des commandes par un "Sauvegarder" posté sans elles
+  // (core/ajax/eqLogic.ajax.php) : les commandes de ce plugin sont ENTIÈREMENT gérées
+  // par le plugin (D-07-7). Sans ce garde-fou, un onglet ouvert avant un
+  // rafraîchissement détruirait silencieusement des commandes référencées par des
+  // scénarios, avec leur historique. Contrepartie assumée : l'icône "supprimer" d'une
+  // commande devient sans effet.
   public function dontRemoveCmd() {
     return true;
   }
-  */
 
   // Exécution d'une commande
   public function execute($_options = array()) {

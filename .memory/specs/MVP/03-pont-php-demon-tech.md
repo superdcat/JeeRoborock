@@ -132,9 +132,18 @@ appel AJAX vers `core/ajax/jeeroborock.ajax.php` et **affiche** le résultat. Il
 métier, ne connaît ni le port du démon, ni l'apikey, ni les codes d'erreur — il reçoit un message déjà
 traduit et une poignée de champs scalaires.
 
-Le JS est **inline dans `configuration.txt`** et non déporté dans un `.js` : c'est la seule façon pour que
-ses libellés passent par le moteur i18n du core (un fichier servi par balise `script src` n'est pas
-traduit). Repli documenté si une CSP l'interdisait : R7.
+Le JS est **inline dans `configuration.txt`** et non déporté dans un `.js` : aucun `.js` n'existe pour la
+page de configuration plugin, et en créer un pour une trentaine de lignes de gestionnaire ajouterait un
+fichier et une requête. Repli documenté si une CSP l'interdisait : R7.
+
+> ⚠️ **Motif corrigé en UC07.** Cette décision était initialement justifiée par « un fichier servi par
+> balise `script src` n'est pas traduit » — c'est **faux** comme règle générale. `include_file()`
+> (`core/php/utils.inc.php` l. 95-103) ne sert directement que `3rdparty` et `*.min.js` ; tout autre `.js`
+> de plugin passe par `core/php/getResource.php` (l. 49-54), qui lui applique
+> `translate::exec(..., $_backslash = true)`. **Un `.js` de plugin EST donc traduit.** La décision
+> ci-dessus reste valide, seul son motif a changé. Conséquence pour tout `.js` de plugin : ses chaînes
+> s'enveloppent en clé i18n, et leurs littérales s'écrivent **en apostrophes simples** (délimiteur protégé
+> par l'échappement du core), à l'inverse de la règle « guillemets doubles » de `configuration.txt`.
 
 ---
 

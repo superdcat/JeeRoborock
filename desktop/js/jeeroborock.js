@@ -85,3 +85,42 @@ function addCmdToTable(_cmd) {
     }
   })
 }
+
+/* UC07 : bouton "Rafraîchir l'état" de la barre de gestion de l'équipement. Fichier
+RENDU (translate::exec) : aucune double accolade ouvrante littérale hors clé i18n, et
+littérales traduisibles en apostrophes simples. */
+var jeeroborockVerrouEtat = false
+$('#bt_jeeroborockRafraichirEtat').on('click', function () {
+  if (jeeroborockVerrouEtat) {
+    return
+  }
+  var eqLogicId = $('.eqLogicAttr[data-l1key=id]').value()
+  if (!isset(eqLogicId) || eqLogicId == '') {
+    $('#div_alert').showAlert({ message: '{{Sélectionnez un robot avant de rafraîchir.}}', level: 'danger' })
+    return
+  }
+  jeeroborockVerrouEtat = true
+  $('#bt_jeeroborockRafraichirEtat').addClass('disabled')
+  $('#div_alert').showAlert({ message: '{{Rafraîchissement en cours…}}', level: 'info' })
+  $.ajax({
+    type: 'POST',
+    url: 'plugins/jeeroborock/core/ajax/jeeroborock.ajax.php',
+    data: { action: 'rafraichirEtat', id: eqLogicId },
+    dataType: 'json',
+    timeout: 50000,
+    error: function () {
+      $('#div_alert').showAlert({ message: '{{Le démon ne répond pas.}}', level: 'danger' })
+    },
+    success: function (data) {
+      if (data.state != 'ok') {
+        $('#div_alert').showAlert({ message: data.result, level: 'danger' })
+        return
+      }
+      $('#div_alert').showAlert({ message: data.result.message, level: 'success' })
+    },
+    complete: function () {
+      jeeroborockVerrouEtat = false
+      $('#bt_jeeroborockRafraichirEtat').removeClass('disabled')
+    }
+  })
+})

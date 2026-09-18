@@ -14,7 +14,9 @@
 > Deux analyses **génériques Jeedom** (vérifiées contre la source du core) sont réutilisables par tout
 > plugin ; les analyses préfixées **`jeeroborock-`** sont **propres à ce plugin** (intégration Roborock).
 >
-> **Dernière mise à jour** : 2026-09-18 (UC06 : `jeeroborock-modele-equipement.md` § 1 — le critère de
+> **Dernière mise à jour** : 2026-09-18 (UC07 : codes d'état/erreur inconnus écrasés en 0 par la
+> librairie ; `is_field_supported()` vaut `True` par défaut sans métadonnée ; `clean_area` est en
+> **mm²** et non cm² ; un `.js` de plugin est bien traduit. Avant : UC06 : `jeeroborock-modele-equipement.md` § 1 — le critère de
 > compatibilité V1 exige **aussi** la catégorie `VACUUM` et un produit résolu, pas seulement `pv` ;
 > `device_products` perd silencieusement un produit inconnu ; l'indicateur « partagé » est
 > `received_devices` et **jamais** `HomeDataDevice.share`. Avant : UC05 : `jeeroborock-cloud-api.md` § 4.1 — sonde de session sans
@@ -71,6 +73,9 @@
 | ⚠️ **Un robot est-il supporté ?** Le critère n'est **pas** seulement `pv == "1.0"` : il faut **aussi** la catégorie `robot.vacuum.cleaner` **et** un produit résolu (`get_home_data_v3` renvoie aussi les non-robots du compte) ; ne pas utiliser `device_products`, qui perd silencieusement un produit inconnu | `jeeroborock-modele-equipement.md` § 1 |
 | ⚠️ **Détecter un robot PARTAGÉ** : c'est l'appartenance à `received_devices` — le champ `HomeDataDevice.share` existe mais n'est lu **nulle part** dans la librairie, sa sémantique n'est corroborée par rien | `jeeroborock-modele-equipement.md` § 1 |
 | « Où lire le contrat ? » — fichiers de `python-roborock`, Home Assistant, ioBroker + points non confirmés | `jeeroborock-implementations-reference.md` |
+| ⚠️ **Un code d'état / d'erreur inconnu de la librairie est écrasé SILENCIEUSEMENT** : `RoborockStateCode` retombe sur `unknown` (0), et `RoborockErrorCode`, qui n'a **pas** de membre `unknown`, retombe sur son premier membre — `none` (0) — donc **une erreur inconnue se présente comme « aucune erreur »** | `jeeroborock-mqtt-protocole.md` § 4 |
+| ⚠️ **Une capacité de `StatusV2` est-elle supportée ?** `is_field_supported()` renvoie **`True` par défaut** pour un champ **sans métadonnée** (`clean_area`, `clean_time`) : un critère `valeur is not None OR is_field_supported(…)` vaut alors `True` en permanence — deux familles de champs, deux critères, à ne jamais unifier | `jeeroborock-modele-equipement.md` § 2.1 |
+| ⚠️ **Un `.js` de plugin EST traduit** (via `getResource.php` → `translate::exec(…, true)`) : seuls `3rdparty` et `*.min.js` ne le sont pas. Ses littérales traduisibles s'écrivent en **apostrophes simples**, à l'inverse de `configuration.txt` | `jeedom-widgets-commandes.md` § i18n |
 
 > Si aucun fichier ne couvre le sujet : ce n'est pas (encore) analysé en interne → passer à la doc externe
 > (`.memory/external/doc/jeedom/INDEX.md` pour le core Jeedom, ou la doc de l'API tierce du plugin), et
