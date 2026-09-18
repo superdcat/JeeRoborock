@@ -27,6 +27,7 @@ class jeeroborockDaemon {
   const TIMEOUT_COMPTE       = 20;    // s, etatCompte (1 a 2 requetes HTTPS nominales, 6 au pire)
   const TIMEOUT_DECOUVERTE   = 20;    // s, decouvrirEquipements (2 requetes HTTPS nominales)
   const TIMEOUT_ETAT         = 35;    // s, lireEtat (homedata + MQTT + get_status, cf. UC07 § Budget)
+  const TIMEOUT_ACTION       = 35;    // s, envoyerCommande (demon borne a 30 s, cf. UC08 § Budget)
   const TIMEOUT_MAX          = 60;    // s, plafond dur - garantit AC1 quel que soit l'appelant
   const TIMEOUT_CONNEXION_MS = 2000;  // ms, connexion loopback
   const MARGE_BUDGET_MS      = 1000;  // ms laissees au demon pour serialiser sa reponse

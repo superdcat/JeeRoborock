@@ -762,6 +762,7 @@ class jeeroborock extends eqLogic {
 
   // Fonction exécutée automatiquement après la sauvegarde (création ou mise à jour) de l'équipement
   public function postSave() {
+    $this->appliquerActions();
   }
 
   // Fonction exécutée automatiquement avant la suppression de l'équipement
@@ -770,6 +771,140 @@ class jeeroborock extends eqLogic {
 
   // Fonction exécutée automatiquement après la suppression de l'équipement
   public function postRemove() {
+  }
+
+  /*     * ***********************Commandes d'action (UC08)********************* */
+
+  // Table statique des 6 commandes d'action posées par appliquerActions(). Littérales
+  // __() DANS la table (jamais __($variable) au point d'usage, l'extraction i18n est un
+  // scan statique). Ordres 20-25 : laissent la plage 12-19 libre pour les commandes info
+  // des UC 12-15, sans renumérotation. Le drapeau 'demon' distingue l'action robot
+  // (transite par jeeroborockDaemon::appeler('envoyerCommande', ...)) du rafraîchissement
+  // local ('rafraichir', branché sur rafraichirEtat()) : executerAction() refuse une clé
+  // dont 'demon' est faux.
+  private static function definitionsActions() {
+    return array(
+      'demarrer'     => array('nom' => __('Démarrer', __FILE__), 'generic' => '', 'ordre' => 20, 'demon' => true),
+      'pause'        => array('nom' => __('Mettre en pause', __FILE__), 'generic' => '', 'ordre' => 21, 'demon' => true),
+      'arreter'      => array('nom' => __('Arrêter', __FILE__), 'generic' => '', 'ordre' => 22, 'demon' => true),
+      'retour_base'  => array('nom' => __('Retour à la base', __FILE__), 'generic' => 'DOCK', 'ordre' => 23, 'demon' => true),
+      'localiser'    => array('nom' => __('Localiser', __FILE__), 'generic' => '', 'ordre' => 24, 'demon' => true),
+      'rafraichir'   => array('nom' => __('Rafraîchir', __FILE__), 'generic' => '', 'ordre' => 25, 'demon' => false),
+    );
+  }
+
+  // Crée ou fait converger la structure des 6 commandes action. Retourne le nombre de
+  // commandes CRÉÉES. NE LÈVE JAMAIS : appelée depuis postSave() (ne doit pas faire
+  // échouer l'enregistrement d'un équipement, ni la boucle de synchroniserEquipements())
+  // et depuis rafraichirEtat() (retrofit, ne doit pas faire échouer un rafraîchissement).
+  public function appliquerActions() {
+    try {
+      $definitions = self::definitionsActions();
+    } catch (Throwable $e) {
+      log::add('jeeroborock', 'error', 'appliquerActions : échec sur la table des définitions : ' . self::nettoyerPourLog(substr($e->getMessage(), 0, 256)));
+      return 0;
+    }
+    $creees = 0;
+
+    foreach ($definitions as $logicalId => $definition) {
+      try {
+        $cmd = $this->getCmd('action', $logicalId);
+        if (is_object($cmd)) {
+          // Commande déjà présente (idempotence) : on ne réécrit que le structurel,
+          // jamais name/isVisible/order (personnalisation utilisateur préservée, même
+          // règle qu'appliquerCapacites() d'UC07).
+          $cmd->setType('action');
+          $cmd->setSubType('other');
+          if ($definition['generic'] != '') {
+            $cmd->setGeneric_type($definition['generic']);
+          }
+          $cmd->save();
+          continue;
+        }
+
+        $cmd = new jeeroborockCmd();
+        $cmd->setEqLogic_id($this->getId());
+        $cmd->setEqType('jeeroborock');
+        $cmd->setLogicalId($logicalId);
+        $cmd->setName($definition['nom']);
+        $cmd->setType('action');
+        $cmd->setSubType('other');
+        if ($definition['generic'] != '') {
+          $cmd->setGeneric_type($definition['generic']);
+        }
+        $cmd->setIsVisible(1);
+        $cmd->setOrder($definition['ordre']);
+        // Pas de setValue() (isAlreadyInStateAllow sauterait sinon l'exécution), pas de
+        // setTemplate() (le cœur pose core::default), pas de setIsHistorized (forcé à 0
+        // pour une action par le cœur).
+        $cmd->save();
+        $creees++;
+      } catch (Throwable $e) {
+        log::add('jeeroborock', 'error', 'appliquerActions : échec sur la commande ' . $logicalId . ' : ' . self::nettoyerPourLog(substr($e->getMessage(), 0, 256)));
+      }
+    }
+
+    return $creees;
+  }
+
+  // Exécute une action de pilotage sur ce robot. Retourne le message FRANÇAIS de succès
+  // (scalaire, jamais un tableau : execute() du cœur transformerait un tableau en chaîne
+  // vide via formatValue()).
+  public function executerAction($_action) {
+    $duid = trim((string) $this->getLogicalId());
+    if (!self::duidValide($duid)) {
+      throw jeeroborockDaemon::erreurLocale('DEVICE_UNKNOWN');
+    }
+    if (!self::estCompteLie()) {
+      throw jeeroborockDaemon::erreurLocale('NOT_AUTHENTICATED');
+    }
+
+    $definitions = self::definitionsActions();
+    if (!isset($definitions[$_action]) || empty($definitions[$_action]['demon'])) {
+      log::add('jeeroborock', 'warning', 'executerAction : action non supportée demandée : ' . self::nettoyerPourLog(substr((string) $_action, 0, 64)));
+      throw jeeroborockDaemon::erreurLocale('UNSUPPORTED_COMMAND');
+    }
+
+    try {
+      $r = jeeroborockDaemon::appeler(
+        'envoyerCommande',
+        array('userData' => self::getUserData(), 'baseUrl' => self::getBaseUrlCompte(), 'email' => self::getEmailCompte(), 'duid' => $duid, 'action' => $_action),
+        jeeroborockDaemon::TIMEOUT_ACTION
+      );
+    } catch (jeeroborockException $e) {
+      // Le dashboard doit rester cohérent avec le message d'erreur (AC7) : un robot dont
+      // l'action n'a pas pu être transmise ne doit pas continuer à afficher 'Connecté'.
+      if ($e->getCodeErreur() === 'DEVICE_OFFLINE') {
+        $this->checkAndUpdateCmd('connecte', 0);
+      }
+      throw $e;
+    }
+
+    try {
+      $this->appliquerEtatPartiel($r);
+    } catch (Throwable $e) {
+      // L'action, elle, a réussi : un incident d'écriture de commande ne doit pas la
+      // faire apparaître en échec.
+      log::add('jeeroborock', 'error', 'executerAction : échec d\'application de l\'état partiel : ' . self::nettoyerPourLog(substr($e->getMessage(), 0, 256)));
+    }
+
+    log::add('jeeroborock', 'info', 'Action « ' . $_action . ' » transmise au robot (équipement ' . $this->getId() . ')');
+
+    return sprintf(__('Commande « %s » transmise au robot.', __FILE__), $definitions[$_action]['nom']);
+  }
+
+  // Applique le résultat de envoyerCommande (même forme que lireEtat) via les méthodes
+  // privées d'UC07, réutilisées SANS modification : aucun nouveau chemin d'écriture de
+  // commande, aucune nouvelle validation à maintenir.
+  private function appliquerEtatPartiel($_reponse) {
+    if (!is_array($_reponse)) {
+      return;
+    }
+    $this->appliquerConnexion($_reponse);
+    if (!empty($_reponse['etatLu'])) {
+      $this->appliquerCapacites(isset($_reponse['capacites']) && is_array($_reponse['capacites']) ? $_reponse['capacites'] : array());
+      $this->appliquerValeurs(isset($_reponse['etat']) && is_array($_reponse['etat']) ? $_reponse['etat'] : array());
+    }
   }
 
   /*     * ***********************Rafraîchissement de l'état (UC07)************ */
@@ -795,6 +930,11 @@ class jeeroborock extends eqLogic {
 
     // TOUJOURS, avant tout test d'échec : c'est ce qui rend AC6 vrai même robot éteint.
     $this->appliquerConnexion($r);
+
+    // Retrofit UC08 : garantit qu'un robot créé avant cette UC, ou jamais joignable,
+    // possède quand même ses 6 commandes action - sans quoi AC7 serait invérifiable.
+    // N'appelle jamais le démon (appliquerActions() est purement local).
+    $this->appliquerActions();
 
     if (empty($r['etatLu'])) {
       $motif = isset($r['motifEchec']) ? (string) $r['motifEchec'] : '';
@@ -1034,8 +1174,31 @@ class jeeroborockCmd extends cmd {
     return true;
   }
 
-  // Exécution d'une commande
+  // Exécution d'une commande (UC08). execCmd() du cœur a déjà garanti un eqLogic actif.
+  // Doit retourner un SCALAIRE (chaîne) : formatValue() du cœur transforme un tableau en
+  // chaîne vide.
   public function execute($_options = array()) {
+    if ($this->getType() != 'action') {
+      return false;
+    }
+
+    // OBLIGATOIRE, pas cosmétique : cmd.ajax.php et ajax::init() ne font jamais
+    // session_write_close() avant execCmd(). Sans lui, tout appel au démon (jusqu'à 35 s)
+    // fige l'interface Jeedom pour l'utilisateur. Le garde session_status() couvre les
+    // exécutions hors HTTP (scénario, cron, API).
+    if (session_status() === PHP_SESSION_ACTIVE) {
+      session_write_close();
+    }
+
+    $eqLogic = $this->getEqLogic();
+
+    switch ($this->getLogicalId()) {
+      case 'rafraichir':
+        $eqLogic->rafraichirEtat();
+        return __('État rafraîchi.', __FILE__);
+      default:
+        return $eqLogic->executerAction($this->getLogicalId());
+    }
   }
 
   /*     * **********************Getteur Setteur*************************** */

@@ -14,7 +14,11 @@
 > Deux analyses **génériques Jeedom** (vérifiées contre la source du core) sont réutilisables par tout
 > plugin ; les analyses préfixées **`jeeroborock-`** sont **propres à ce plugin** (intégration Roborock).
 >
-> **Dernière mise à jour** : 2026-09-18 (UC07 : codes d'état/erreur inconnus écrasés en 0 par la
+> **Dernière mise à jour** : 2026-09-18 (UC08 : `jeedom-widgets-commandes.md` § 4 **corrigé** — un
+> retour `array`/`object` de `cmd::execute()` est écrasé en chaîne vide par `formatValue()`, l'ancienne
+> rédaction laissait croire l'inverse ; `cmd.ajax.php` ne relâche pas le verrou de session et sort par
+> `displayException()` ; piège de la `value` sur une commande action (`isAlreadyInStateAllow`) ;
+> `numberTryWithoutSuccess` jamais incrémenté. Avant : UC07 : codes d'état/erreur inconnus écrasés en 0 par la
 > librairie ; `is_field_supported()` vaut `True` par défaut sans métadonnée ; `clean_area` est en
 > **mm²** et non cm² ; un `.js` de plugin est bien traduit. Avant : UC06 : `jeeroborock-modele-equipement.md` § 1 — le critère de
 > compatibilité V1 exige **aussi** la catégorie `VACUUM` et un produit résolu, pas seulement `pv` ;
@@ -38,6 +42,10 @@
 | Widget pilotant **plusieurs commandes** (tuile + actions) ; résoudre les sœurs par `byEqLogic` | `jeedom-widgets-commandes.md` § 3 |
 | Exécuter une action depuis un widget + récupérer le retour PHP ; auth/CSRF AJAX ; AJAX plugin admin-only | `jeedom-widgets-commandes.md` §§ 4-5 |
 | **Confirmation avant une action sensible** (dialog anti-fausse-manip) : comment l'activer côté serveur | `jeedom-widgets-commandes.md` § 4 (`actionConfirm=1` → -32006) |
+| ⚠️ **Ce que `cmd::execute()` peut RETOURNER** : un `array`/`object` arrive au widget en **chaîne vide** (`formatValue`), silencieusement → scalaire ou `json_encode()` | `jeedom-widgets-commandes.md` § 4 |
+| ⚠️ **Une commande action LENTE (démon, API tierce) fige l'interface Jeedom** : `cmd.ajax.php` ne relâche jamais le verrou de session → `session_write_close()` dans `execute()`, sous garde | `jeedom-widgets-commandes.md` § 4 |
+| **Secret et trace d'exception sur le chemin d'une commande** : `cmd.ajax.php` sort par `displayException()` → `getTraceAsString()` dans le DOM en log `debug` global ⇒ jamais de secret en **argument scalaire** | `jeedom-widgets-commandes.md` § 4 |
+| Commande **action** sautée en silence (« succès » sans exécution) : piège de la `value` liée et d'`isAlreadyInStateAllow()` ; `numberTryWithoutSuccess` jamais incrémenté par le cœur | `jeedom-widgets-commandes.md` § 4 |
 | **Commande action PARAMÉTRÉE** (saisie utilisateur : subType `message`, valeur dans `$_options['message']`) | `jeedom-widgets-commandes.md` § 4 |
 | Appliquer un **template de widget sans écraser** le choix utilisateur (« si vide ») | `jeedom-widgets-commandes.md` § 6 |
 | **CSP Jeedom bloque tout média/image EXTERNE** → proxy same-origin (ex. tuile carte) | `jeedom-widgets-commandes.md` § 7 |

@@ -59,7 +59,13 @@ Disposition Jeedom fixe (type MVC), nommée d'après l'id `jeeroborock`.
     `preConfig_<clé>`/`postConfig_<clé>`, et les hooks de démon `deamon_info`/`deamon_start`/`deamon_stop`.
     `$_encryptConfigKey` chiffre les champs de config **plugin** sensibles.
   - `jeeroborockCmd extends cmd` — commande info ou action. `execute($_options)` route l'action vers le
-    pont démon (typiquement un `switch` sur `logicalId`).
+    pont démon (`switch` sur `logicalId`, posé en UC08). Trois contrats du cœur à respecter, tous
+    vérifiés sur la source et détaillés dans `.memory/analyse/jeedom-widgets-commandes.md` § 4 :
+    `execute()` doit retourner un **scalaire** (`formatValue()` écrase un tableau en chaîne vide,
+    silencieusement) ; il doit faire lui-même son **`session_write_close()`** sous garde
+    (`cmd.ajax.php` ne le fait pas, et un appel démon de 35 s figerait toute l'interface Jeedom) ; et
+    une commande **action** ne doit pas porter de `value` liée (sinon `isAlreadyInStateAllow()` peut
+    faire **sauter** l'exécution en la présentant comme un succès).
 - **`core/class/jeeroborockDaemon.class.php`** — ⚠️ **la brique unique d'accès au démon**, dans son
   **propre** fichier parce qu'elle est appelée depuis des points d'entrée externes (AJAX, cron, callback)
   et doit donc être trouvable par l'autoloader. **Tout** échange PHP → démon passe par là : aucun appel
@@ -144,7 +150,8 @@ Disposition Jeedom fixe (type MVC), nommée d'après l'id `jeeroborock`.
   garde que le cycle de vie. Ajouter une opération = `canal.enregistrer('<nom>', <coroutine>)`.
   UC04 a posé **`authentification.py`** (opérations `demanderCode`, `validerCode`, `restaurerSession`,
   rejointes en UC05 par `etatCompte`), UC06 **`equipements.py`** (`decouvrirEquipements`) et UC07
-  **`robots.py`** (`lireEtat`) + **`libelles.py`** (tables de libellés FR des états et erreurs, pures
+  **`robots.py`** (`lireEtat`, rejointe en UC08 par `envoyerCommande` — liste blanche **fermée** de
+  5 actions V1) + **`libelles.py`** (tables de libellés FR des états et erreurs, pures
   données, aucune opération enregistrée) :
   **un module par domaine fonctionnel**, enregistré explicitement depuis
   `jeeroborockd.py` — pas par effet de bord d'import. L'instance `RoborockApiClient` vit dans
@@ -156,7 +163,10 @@ Disposition Jeedom fixe (type MVC), nommée d'après l'id `jeeroborock`.
   ne jamais le sérialiser ni le journaliser. ⚠️ Le construire coûte un appel **`homedata`** (quota dur) —
   **toute UC suivante qui a besoin du robot passe par `robots.obtenir_appareil()`** et ne rappelle
   **jamais** `create_device_manager()`, sous peine de doubler la consommation de quota et d'ouvrir une
-  seconde session MQTT sur le même compte.
+  seconde session MQTT sur le même compte. UC08 a protégé la **construction** par un verrou asyncio
+  (`_VERROU_GESTIONNAIRE`, double-checked locking — le chemin rapide mémorisé reste hors verrou) :
+  depuis que 6 boutons de dashboard et les scénarios peuvent déclencher un appel, deux appels
+  concurrents sur un contexte vide construiraient deux gestionnaires, donc **deux `homedata`**.
   UC06 a extrait de `authentification.py` le module **`session.py`** : import gardé de la librairie
   (`IMPORT_OK`, `UserData`, `RoborockApiClient`), `creer_client()` et la sérialisation du `UserData`
   (`encoder_user_data`/`decoder_user_data`). **Tout nouveau module qui a besoin d'une session lit ces

@@ -58,7 +58,15 @@
         "Le démon n'a pas démarré dans le temps imparti, consultez le log du démon.": "The daemon did not start within the allotted time, check the daemon log.",
         "Log du démon": "Daemon log",
         "Impossible de déterminer l'état du démon, consultez le log du plugin.": "Unable to determine the daemon status, check the plugin log.",
-        "La version %s de python-roborock est plus récente que la version majeure validée par le plugin (%s) : le fonctionnement n'est pas garanti.": "Version %s of python-roborock is newer than the major version validated by the plugin (%s): operation is not guaranteed."
+        "La version %s de python-roborock est plus récente que la version majeure validée par le plugin (%s) : le fonctionnement n'est pas garanti.": "Version %s of python-roborock is newer than the major version validated by the plugin (%s): operation is not guaranteed.",
+        "Démarrer": "Start",
+        "Mettre en pause": "Pause",
+        "Arrêter": "Stop",
+        "Retour à la base": "Return to base",
+        "Localiser": "Locate",
+        "Rafraîchir": "Refresh",
+        "Commande « %s » transmise au robot.": "Command \"%s\" sent to the robot.",
+        "État rafraîchi.": "Status refreshed."
     },
     "plugins/jeeroborock/core/class/jeeroborockDaemon.class.php": {
         "Erreur inattendue du démon. Consultez le log du plugin.": "Unexpected daemon error. Check the plugin log.",

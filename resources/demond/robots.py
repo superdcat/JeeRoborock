@@ -32,13 +32,23 @@
 # via device.v1_properties.routines) : ces UC doivent l'appeler et ne JAMAIS
 # reconstruire un DeviceManager elles-memes (R-14) - une seconde construction
 # doublerait la consommation de quota et ouvrirait une seconde session MQTT.
+#
+# UC08 (commandes de pilotage de base) ajoute envoyer_commande() : liste blanche
+# FERMEE de 5 actions (ACTIONS), reclassement des erreurs d'envoi (_erreur_envoi) et
+# relecture best-effort post-action. _VERROU_GESTIONNAIRE protege desormais la
+# CONSTRUCTION du gestionnaire (double-checked locking) : UC08 multiplie les points
+# d'appel concurrents (6 boutons au dashboard) par rapport au bouton admin unique
+# d'UC07, rendant une double construction (2 homedata + 2 sessions MQTT) nettement
+# plus probable - dette latente d'UC07, corrigee ici de facon retroactive (profite
+# aussi a lire_etat).
 
 import asyncio
 import hashlib
 import logging
 import re
+import time
 
-from roborock import StatusField, StatusV2
+from roborock import RoborockCommand, StatusField, StatusV2
 from roborock.devices.cache import InMemoryCache
 from roborock.devices.device_manager import UserParams, create_device_manager
 
@@ -51,6 +61,30 @@ DELAI_CONSTRUCTION_S = 15
 DELAI_ATTENTE_CONNEXION_S = 3
 DELAI_LECTURE_S = 12
 PAS_ATTENTE_S = 0.25
+
+# Budget de envoyer_commande (echeance globale : demon <= 30 s < canal 34 s < PHP 35 s,
+# cf. jeeroborockDaemon::TIMEOUT_ACTION).
+DELAI_TOTAL_ACTION_S = 30
+DELAI_ENVOI_MAX_S = 22          # plafond ; la borne reelle est ce qui reste de l'echeance
+DELAI_RELECTURE_S = 8
+PAUSE_AVANT_RELECTURE_S = 2.0
+RESTE_MINIMAL_RELECTURE_S = 4
+
+# Liste blanche FERMEE : le PHP ne peut JAMAIS faire emettre une RPC arbitraire au
+# robot, seulement une des 5 clefs ci-dessous.
+ACTIONS = {
+    "demarrer": RoborockCommand.APP_START,
+    "pause": RoborockCommand.APP_PAUSE,
+    "arreter": RoborockCommand.APP_STOP,
+    "retour_base": RoborockCommand.APP_CHARGE,
+    "localiser": RoborockCommand.FIND_ME,
+}
+
+# Protege la CONSTRUCTION du gestionnaire (pas le chemin rapide memorise) : deux
+# appels concurrents sur un contexte["gestionnaire"] vide construiraient deux
+# DeviceManager = deux homedata (quota dur 5/h, 40/jour, partage avec l'application
+# mobile de l'utilisateur) et deux sessions MQTT sur le meme compte.
+_VERROU_GESTIONNAIRE = asyncio.Lock()
 
 LONGUEUR_MAX_TEXTE = 128
 
@@ -100,7 +134,12 @@ async def _construire(user_data, base_url, email):
 
 async def _gestionnaire(parametres, contexte):
     """Retourne le DeviceManager memorise dans contexte["gestionnaire"], en le
-    (re)construisant si absent ou si l'empreinte de session a change (D-07-2)."""
+    (re)construisant si absent ou si l'empreinte de session a change (D-07-2).
+
+    UC08 : la CONSTRUCTION est protegee par _VERROU_GESTIONNAIRE (double-checked
+    locking) - le chemin rapide (gestionnaire deja memorise, empreinte identique)
+    reste HORS verrou. Une seule boucle asyncio, le verrou n'encapsule aucun await
+    qui rebouclerait dessus : pas de risque d'interblocage."""
     user_data_brut = parametres.get("userData") or ""
     empreinte = _empreinte(user_data_brut)
 
@@ -108,20 +147,27 @@ async def _gestionnaire(parametres, contexte):
     if memorise is not None and memorise.get("empreinte") == empreinte:
         return memorise["objet"]
 
-    if memorise is not None:
-        contexte["gestionnaire"] = None
-        try:
-            await memorise["objet"].close()
-        except Exception as erreur:
-            logging.warning("Fermeture de l'ancien gestionnaire en erreur : %s", erreur)
+    async with _VERROU_GESTIONNAIRE:
+        # Double verification : un autre appel concurrent a pu construire pendant
+        # l'attente du verrou.
+        memorise = contexte.get("gestionnaire")
+        if memorise is not None and memorise.get("empreinte") == empreinte:
+            return memorise["objet"]
 
-    user_data = session.decoder_user_data(user_data_brut)
-    base_url = parametres.get("baseUrl") or ""
-    email = parametres.get("email") or ""
+        if memorise is not None:
+            contexte["gestionnaire"] = None
+            try:
+                await memorise["objet"].close()
+            except Exception as erreur:
+                logging.warning("Fermeture de l'ancien gestionnaire en erreur : %s", erreur)
 
-    objet = await _construire(user_data, base_url, email)
-    contexte["gestionnaire"] = {"objet": objet, "empreinte": empreinte}
-    return objet
+        user_data = session.decoder_user_data(user_data_brut)
+        base_url = parametres.get("baseUrl") or ""
+        email = parametres.get("email") or ""
+
+        objet = await _construire(user_data, base_url, email)
+        contexte["gestionnaire"] = {"objet": objet, "empreinte": empreinte}
+        return objet
 
 
 async def obtenir_appareil(parametres, contexte):
@@ -151,6 +197,17 @@ async def obtenir_appareil(parametres, contexte):
     if appareil is None:
         raise ErreurDemon("DEVICE_UNKNOWN")
     return appareil
+
+
+async def _attendre_connexion(appareil):
+    """Attend jusqu'a DELAI_ATTENTE_CONNEXION_S que le canal V1 signale une connexion
+    etablie. EXTRAITE de lire_etat (UC07), comportement strictement identique - partagee
+    avec envoyer_commande (UC08). Retourne l'etat final de appareil.is_connected."""
+    attente = 0.0
+    while not appareil.is_connected and attente < DELAI_ATTENTE_CONNEXION_S:
+        await asyncio.sleep(PAS_ATTENTE_S)
+        attente += PAS_ATTENTE_S
+    return appareil.is_connected
 
 
 async def fermer_gestionnaire(contexte):
@@ -226,10 +283,7 @@ async def lire_etat(parametres, contexte):
 
     en_ligne = appareil.device_info.online
 
-    attente = 0.0
-    while not appareil.is_connected and attente < DELAI_ATTENTE_CONNEXION_S:
-        await asyncio.sleep(PAS_ATTENTE_S)
-        attente += PAS_ATTENTE_S
+    await _attendre_connexion(appareil)
 
     if not appareil.is_connected:
         return {
@@ -290,5 +344,117 @@ async def lire_etat(parametres, contexte):
     }
 
 
+def _erreur_envoi(erreur):
+    """Classe une exception levee par command.send() en ErreurDemon typee. ORDRE
+    IMPOSE, chaque test est source (cf. spec technique UC08 § Classement des erreurs
+    d'envoi) :
+
+    1. TimeoutError (notre wait_for, ou __cause__ pose par la librairie) -> DEVICE_OFFLINE.
+       SANS ce test, code_pour_exception() suivrait __cause__ jusqu'a TimeoutError, dont
+       le MRO contient OSError (Python >= 3.11) -> CLOUD_UNREACHABLE, un message FAUX
+       ("verifiez l'acces a Internet de Jeedom") alors que c'est le ROBOT qui ne repond
+       pas.
+    2. erreur.args[0] est un dict portant un "code" entier -> DEVICE_ACTION_REFUSED
+       (AC8). Detection DE FORME, jamais d'un message anglais : _create_api_error
+       (protocols/v1_protocol.py) est le seul endroit de la librairie qui construit une
+       RoborockException a partir d'un dict.
+    3. Sinon code_pour_exception(erreur), qui preserve RoborockInvalidStatus ->
+       DEVICE_ACTION_REFUSED (deja dans TABLE_CODES), AUTH_EXPIRED, RATE_LIMIT,
+       UNSUPPORTED... Aucune exception n'est avalee.
+
+    Approximation assumee : le test 1 amalgame silence reel du robot et notre propre
+    wait_for qui a coupe court faute de budget - les deux se presentent a l'utilisateur
+    comme "robot hors ligne", ce qu'AC7 attend."""
+    if isinstance(erreur, TimeoutError) or isinstance(erreur.__cause__, TimeoutError):
+        return ErreurDemon("DEVICE_OFFLINE")
+
+    args = getattr(erreur, "args", None)
+    if args and isinstance(args[0], dict) and isinstance(args[0].get("code"), int):
+        logging.info("envoyerCommande : refus du robot code=%s", args[0].get("code"))
+        return ErreurDemon("DEVICE_ACTION_REFUSED")
+
+    code, _nom_classe = code_pour_exception(erreur)
+    return ErreurDemon(code)
+
+
+async def envoyer_commande(parametres, contexte):
+    """Transmet une des 5 actions de la liste blanche ACTIONS au robot par le canal V1
+    deja ouvert par obtenir_appareil() (UC07), puis tente une relecture best-effort de
+    l'etat (§ Rafraichissement post-action) pour que le dashboard reflete l'effet de
+    l'action sans second aller-retour (ni push - UC10 -, ni cron - D-07-9)."""
+    echeance = time.monotonic() + DELAI_TOTAL_ACTION_S
+
+    action = str(parametres.get("action") or "")
+    commande = ACTIONS.get(action)
+    if commande is None:
+        logging.error("envoyerCommande : action hors liste blanche : %s", _texte(action, 32))
+        raise ErreurDemon("INTERNAL_ERROR")
+
+    appareil = await obtenir_appareil(parametres, contexte)
+    duid = appareil.duid
+
+    connecte = await _attendre_connexion(appareil)
+    if not connecte:
+        # Chemin rapide (AC7) : aucune RPC emise sur un canal que is_connected signale
+        # deja comme non etabli.
+        raise ErreurDemon("DEVICE_OFFLINE")
+
+    budget = min(DELAI_ENVOI_MAX_S, echeance - time.monotonic())
+    if budget < 3:
+        raise ErreurDemon("OPERATION_TIMEOUT")
+
+    try:
+        resultat = await asyncio.wait_for(appareil.v1_properties.command.send(commande), budget)
+    except Exception as erreur:
+        raise _erreur_envoi(erreur) from erreur
+
+    # Le payload decode (typiquement ["ok"]) n'est PAS renvoye au PHP (donnee externe
+    # inutile cote Jeedom) : journalise en debug, et en info s'il vaut autre chose que
+    # "ok"/["ok"] (signal de recette).
+    if resultat in ("ok", ["ok"]):
+        logging.debug("envoyerCommande : action=%s duid=%s transmise, reponse=%s", action, _texte(duid, 16), _texte(resultat, 128))
+    else:
+        logging.info("envoyerCommande : action=%s duid=%s transmise, reponse inattendue=%s", action, _texte(duid, 16), _texte(resultat, 128))
+
+    etat_lu = False
+    motif_echec = ""
+    capacites = {}
+    etat = {}
+
+    restant = echeance - time.monotonic()
+    if restant < RESTE_MINIMAL_RELECTURE_S:
+        logging.info("envoyerCommande : relecture sautee (budget insuffisant) action=%s duid=%s", action, _texte(duid, 16))
+    else:
+        await asyncio.sleep(min(PAUSE_AVANT_RELECTURE_S, restant / 4))
+        restant = echeance - time.monotonic()
+        try:
+            await asyncio.wait_for(appareil.v1_properties.status.refresh(), min(DELAI_RELECTURE_S, restant))
+            status = appareil.v1_properties.status
+            features = appareil.v1_properties.device_features
+            capacites = _capacites(status, features)
+            etat = _valeurs(status)
+            etat_lu = True
+        except Exception as erreur:
+            # Relecture BEST-EFFORT : ne relever JAMAIS (l'action a reussi, la transformer
+            # en erreur serait un faux negatif).
+            code, _nom_classe = code_pour_exception(erreur)
+            logging.info("envoyerCommande : relecture post-action en echec action=%s duid=%s motif=%s", action, _texte(duid, 16), code)
+
+    # motifEchec reste vide par construction : structurellement aligne sur le payload
+    # de lireEtat, mais ici l'action a deja reussi (sinon on serait sorti via
+    # _erreur_envoi ci-dessus) - executerAction() ignore ce champ.
+    return {
+        "duid": duid,
+        "action": action,
+        "enLigne": appareil.device_info.online,
+        "connecte": appareil.is_connected,
+        "etatLu": etat_lu,
+        "motifEchec": motif_echec,
+        "capacites": capacites,
+        "etat": etat,
+    }
+
+
 def enregistrer_operations():
     canal.enregistrer("lireEtat", lire_etat)
+    canal.enregistrer("envoyerCommande", envoyer_commande)

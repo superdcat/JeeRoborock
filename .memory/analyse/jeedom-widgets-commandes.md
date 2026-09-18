@@ -52,6 +52,32 @@ plusieurs commandes info ensemble.
 - `success(data)` reçoit `{state, result}` où **`result` = la valeur de retour PHP de `cmd::execute()`**.
   ⇒ Faire `return $payload;` dans l'action PHP livre la donnée au widget en **un seul aller-retour**.
   `notify:false` supprime le toast (utile pour un refresh périodique d'une tuile).
+  ⚠️⚠️ **Mais ce payload doit être un SCALAIRE** (corrigé en UC08, 2026-09-18, vérifié sur la source du
+  core) : `execCmd()` fait `$value = $this->formatValue($this->execute($options), $_quote)` et
+  `formatValue()` **ouvre** par `if (is_array($_value) || is_object($_value)) { return ''; }`. Un
+  `return array(...)` depuis `execute()` arrive donc au widget en **chaîne vide**, *silencieusement* —
+  pas d'erreur, pas de log. Pour livrer une structure : `json_encode()` côté PHP et `JSON.parse()` côté
+  widget. ⚠️ Ce carve-out ne vaut **que** pour le type `action` : une commande `info` retourne sa valeur
+  de cache **sans** passer par `formatValue()`.
+- ⚠️ **`core/ajax/cmd.ajax.php` ne fait AUCUN `session_write_close()`** (ni `ajax::init()`) — vérifié
+  source, UC08. Une commande action qui appelle un démon ou une API tierce **fige donc toute l'interface
+  Jeedom** pendant son exécution. Même mécanisme et même parade que pour les hooks `preConfig_`
+  (`jeedom-config-plugin-defauts.md` § 6) : c'est à `cmd::execute()` de relâcher le verrou lui-même,
+  sous garde `if (session_status() === PHP_SESSION_ACTIVE) { session_write_close(); }` — la garde
+  couvre les exécutions hors HTTP (scénario, cron, API JSON-RPC).
+- ⚠️ **`cmd.ajax.php` sort en `ajax::error(displayException($e), …)`** : `displayException()` +
+  `log::exception` injectent **`getTraceAsString()` dans le DOM** quand le niveau de log **global** vaut
+  `debug`, et une trace PHP expose les **arguments de chaque frame**. Corollaire pour tout plugin qui
+  manipule un secret : **ne jamais passer un secret en argument scalaire** d'une fonction du chemin
+  d'exécution d'une commande — le mettre à l'intérieur d'un tableau de paramètres, que
+  `getTraceAsString()` rend `Array`.
+- **Ne pas poser de `value`** (commande info liée) sur une commande **action** dont l'exécution doit
+  toujours partir : `isAlreadyInStateAllow()` retourne `false` quand aucune `value` n'est liée, donc le
+  cœur n'exécute pas si l'état visé est déjà atteint. Une action « démarrer » liée à un état pourrait
+  être **sautée en silence** et présentée comme un succès.
+- **`numberTryWithoutSuccess` n'est jamais incrémenté par le cœur** (relu puis ré-écrit à l'identique,
+  vérifié source UC08) ⇒ la désactivation automatique d'un équipement après N échecs **ne se déclenche
+  pas**. Inutile de poser `nerverFail` sur une commande qui peut légitimement échouer (robot hors ligne).
 - ⚠️ **Activer la confirmation d'une action (anti-fausse-manip)** — vérifié source `jeedom/core` : côté
   **serveur**, poser `$cmd->setConfiguration('actionConfirm', 1)` (à la création, avant `save()`).
   `core/ajax/cmd.ajax.php` fait alors, **avant** `cmd::execCmd()` :
