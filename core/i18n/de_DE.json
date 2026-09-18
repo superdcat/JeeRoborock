@@ -21,6 +21,8 @@
         "Roborock envoie un code à usage unique à l'adresse e-mail enregistrée. Enregistrez la configuration avant de demander un code.": "Roborock sendet einen einmaligen Code an die registrierte E-Mail-Adresse. Speichern Sie die Konfiguration, bevor Sie einen Code anfordern.",
         "Envoyer un code": "Code senden",
         "Valider le code": "Code bestätigen",
+        "Tester la connexion": "Verbindung testen",
+        "Test en cours…": "Test läuft…",
         "Envoi du code en cours…": "Code wird gesendet…",
         "Code envoyé, vérifiez vos e-mails": "Code gesendet, prüfen Sie Ihre E-Mails",
         "Saisissez le code reçu par e-mail.": "Geben Sie den per E-Mail erhaltenen Code ein.",
@@ -84,6 +86,16 @@
         "Une erreur interne est survenue. Consultez le log du plugin.": "Ein interner Fehler ist aufgetreten. Prüfen Sie das Plugin-Log.",
         "Saisissez le code reçu par e-mail (4 à 12 caractères alphanumériques).": "Geben Sie den per E-Mail erhaltenen Code ein (4 bis 12 alphanumerische Zeichen).",
         "Renseignez l'adresse e-mail du compte Roborock et enregistrez la configuration avant de demander un code.": "Geben Sie die E-Mail-Adresse des Roborock-Kontos ein und speichern Sie die Konfiguration, bevor Sie einen Code anfordern.",
-        "Le compte a été authentifié mais la session n'a pas pu être enregistrée. Consultez le log du plugin.": "Das Konto wurde authentifiziert, aber die Sitzung konnte nicht gespeichert werden. Prüfen Sie das Plugin-Log."
+        "Le compte a été authentifié mais la session n'a pas pu être enregistrée. Consultez le log du plugin.": "Das Konto wurde authentifiziert, aber die Sitzung konnte nicht gespeichert werden. Prüfen Sie das Plugin-Log.",
+        "Non configuré": "Nicht konfiguriert",
+        "Aucune adresse e-mail n'est renseignée : saisissez l'adresse du compte Roborock dans cette page et enregistrez la configuration.": "Es ist keine E-Mail-Adresse angegeben: Geben Sie die Adresse des Roborock-Kontos auf dieser Seite ein und speichern Sie die Konfiguration.",
+        "Compte Roborock non lié": "Roborock-Konto nicht verknüpft",
+        "Le compte Roborock n'est pas lié : demandez un code de connexion pour authentifier le compte.": "Das Roborock-Konto ist nicht verknüpft: Fordern Sie einen Anmeldecode an, um das Konto zu authentifizieren.",
+        "Compte Roborock lié": "Roborock-Konto verknüpft",
+        "Authentifié — %1$s robot(s) détecté(s) (inventaire du %2$s)": "Authentifiziert — %1$s Roboter erkannt (Bestand vom %2$s)",
+        "Authentifié — le nombre de robots n'a pas pu être relevé : le quota d'inventaire Roborock est atteint, réessayez plus tard.": "Authentifiziert — die Anzahl der Roboter konnte nicht ermittelt werden: Das Roborock-Bestandskontingent ist erreicht, versuchen Sie es später erneut.",
+        "Authentifié — le nombre de robots n'a pas pu être relevé.": "Authentifiziert — die Anzahl der Roboter konnte nicht ermittelt werden.",
+        "Ré-authentification requise": "Erneute Authentifizierung erforderlich",
+        "Serveur du compte : %s": "Konto-Server: %s"
     }
 }

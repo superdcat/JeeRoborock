@@ -40,8 +40,8 @@ try {
       ));
       break;
     case 'demanderCode':
-      $email = trim((string) config::byKey('email', 'jeeroborock', ''));
-      if ($email == '' || !filter_var($email, FILTER_VALIDATE_EMAIL)) {
+      $email = jeeroborock::getEmailCompte();
+      if ($email == '') {
         ajax::error(__('Renseignez l\'adresse e-mail du compte Roborock et enregistrez la configuration avant de demander un code.', __FILE__));
         break;
       }
@@ -49,8 +49,8 @@ try {
       ajax::success(array('envoye' => true));
       break;
     case 'validerCode':
-      $email = trim((string) config::byKey('email', 'jeeroborock', ''));
-      if ($email == '' || !filter_var($email, FILTER_VALIDATE_EMAIL)) {
+      $email = jeeroborock::getEmailCompte();
+      if ($email == '') {
         ajax::error(__('Renseignez l\'adresse e-mail du compte Roborock et enregistrez la configuration avant de demander un code.', __FILE__));
         break;
       }
@@ -67,6 +67,104 @@ try {
       // La reponse est reconstruite champ par champ : $resultat, qui contient le userData,
       // ne repart JAMAIS vers le navigateur (AC5).
       ajax::success(array('lie' => true));
+      break;
+    case 'testerConnexion':
+      // UC05 - 6 etapes, court-circuit au premier etat atteint (D-05-2). Endpoint admin
+      // assume : l'action peut declencher un appel cloud impute au quota du compte.
+      $email = jeeroborock::getEmailCompte();
+      if ($email == '') {
+        ajax::success(array(
+          'etat'        => 'nonConfigure',
+          'message'     => __('Aucune adresse e-mail n\'est renseignée : saisissez l\'adresse du compte Roborock dans cette page et enregistrez la configuration.', __FILE__),
+          'badge'       => __('Non configuré', __FILE__),
+          'badgeClasse' => 'label-default',
+        ));
+        break;
+      }
+      if (!jeeroborock::estCompteLie()) {
+        ajax::success(array(
+          'etat'        => 'nonAuthentifie',
+          'message'     => __('Le compte Roborock n\'est pas lié : demandez un code de connexion pour authentifier le compte.', __FILE__),
+          'badge'       => __('Compte Roborock non lié', __FILE__),
+          'badgeClasse' => 'label-default',
+        ));
+        break;
+      }
+
+      $inventaire = jeeroborock::getInventaireCompte();
+      $avecInventaire = ($inventaire === null);
+
+      try {
+        $r = jeeroborockDaemon::appeler(
+          'etatCompte',
+          array('userData' => jeeroborock::getUserData(), 'baseUrl' => jeeroborock::getBaseUrlCompte(), 'email' => $email, 'avecInventaire' => $avecInventaire),
+          jeeroborockDaemon::TIMEOUT_COMPTE
+        );
+      } catch (jeeroborockException $e) {
+        if ($e->getCodeErreur() == 'AUTH_EXPIRED') {
+          log::add('jeeroborock', 'warning', 'Test de connexion : session Roborock expirée (' . $e->getMessage() . ')');
+          ajax::success(array(
+            'etat'        => 'reauthentification',
+            'message'     => $e->getMessage(),
+            'badge'       => __('Ré-authentification requise', __FILE__),
+            'badgeClasse' => 'label-warning',
+          ));
+          break;
+        }
+        if ($e->getCodeErreur() == 'NOT_AUTHENTICATED') {
+          ajax::success(array(
+            'etat'        => 'nonAuthentifie',
+            'message'     => __('Le compte Roborock n\'est pas lié : demandez un code de connexion pour authentifier le compte.', __FILE__),
+            'badge'       => __('Compte Roborock non lié', __FILE__),
+            'badgeClasse' => 'label-default',
+          ));
+          break;
+        }
+        throw $e;
+      }
+
+      // Tracabilite d'AC4 - trois branches distinctes, a ne pas confondre (cf. correction
+      // de revue de la spec technique) : sans le garde quotaInventaire, la 2e branche
+      // journaliserait "servi depuis le cache" alors qu'aucun cache n'a servi, ce qui rend
+      // R-4 (AC4) et R-6 (AC6) indistinguables au log.
+      $nbRobots = null;
+      if (isset($r['nbRobots']) && is_numeric($r['nbRobots']) && intval($r['nbRobots']) >= 0) {
+        $nbRobots = intval($r['nbRobots']);
+        jeeroborock::enregistrerInventaireCompte($nbRobots);
+        // Pas de relecture du cache ici : cache::set peut ne rien persister sans lever (panne
+        // du backend de cache), l'ecriture ne doit alors pas conditionner la justesse du
+        // message construit maintenant a partir de ce que le demon vient de repondre.
+        $inventaire = array('nbRobots' => $nbRobots, 'horodatage' => time());
+        log::add('jeeroborock', 'info', 'Inventaire du compte rafraîchi via homedata (quota 40/jour)');
+      } elseif (!empty($r['quotaInventaire'])) {
+        log::add('jeeroborock', 'info', 'Inventaire non rafraîchi : quota homedata local déjà atteint');
+      } else {
+        // Cache deja consulte avant l'appel demon (avecInventaire = false) : $inventaire
+        // porte deja la donnee, il ne reste qu'a en extraire le nombre pour l'affichage.
+        if ($inventaire !== null) {
+          $nbRobots = $inventaire['nbRobots'];
+        }
+        log::add('jeeroborock', 'debug', 'Inventaire servi depuis le cache, aucun appel homedata');
+      }
+
+      $baseUrl = jeeroborock::getBaseUrlCompte();
+      if ($nbRobots !== null && $inventaire !== null) {
+        $message = sprintf(__('Authentifié — %1$s robot(s) détecté(s) (inventaire du %2$s)', __FILE__), $nbRobots, date('d/m/Y H:i', $inventaire['horodatage']));
+      } elseif (!empty($r['quotaInventaire'])) {
+        $message = __('Authentifié — le nombre de robots n\'a pas pu être relevé : le quota d\'inventaire Roborock est atteint, réessayez plus tard.', __FILE__);
+      } else {
+        $message = __('Authentifié — le nombre de robots n\'a pas pu être relevé.', __FILE__);
+      }
+      if ($baseUrl != '') {
+        $message .= ' ' . sprintf(__('Serveur du compte : %s', __FILE__), parse_url($baseUrl, PHP_URL_HOST));
+      }
+
+      ajax::success(array(
+        'etat'        => 'authentifie',
+        'message'     => $message,
+        'badge'       => __('Compte Roborock lié', __FILE__),
+        'badgeClasse' => 'label-success',
+      ));
       break;
     default:
       throw new Exception(__('Aucune méthode correspondante à', __FILE__) . ' : ' . init('action'));

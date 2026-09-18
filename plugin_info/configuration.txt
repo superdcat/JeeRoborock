@@ -41,6 +41,9 @@ if (!isConnect('admin')) {
         <?php } else { ?>
         <span id="jeeroborockEtatCompte" class="label label-default">{{Compte Roborock non lié}}</span>
         <?php } ?>
+        <a class="btn btn-default" id="bt_jeeroborockTesterConnexion">{{Tester la connexion}}</a>
+        <br/>
+        <span id="jeeroborockResultatTest"></span>
       </div>
     </div>
     <div class="form-group">
@@ -182,6 +185,42 @@ if (!isConnect('admin')) {
         jeeroborockVerrouAuth = false;
         $('#bt_jeeroborockDemanderCode').removeClass('disabled');
         $('#bt_jeeroborockValiderCode').removeClass('disabled');
+      }
+    });
+  });
+
+  var jeeroborockVerrouTest = false;
+
+  $('#bt_jeeroborockTesterConnexion').on('click', function () {
+    if (jeeroborockVerrouTest) {
+      return;
+    }
+    jeeroborockVerrouTest = true;
+    var zoneResultat = $('#jeeroborockResultatTest');
+    $('#bt_jeeroborockTesterConnexion').addClass('disabled');
+    zoneResultat.text("{{Test en cours…}}");
+    $.ajax({
+      type: 'POST',
+      url: 'plugins/jeeroborock/core/ajax/jeeroborock.ajax.php',
+      data: {action: 'testerConnexion'},
+      dataType: 'json',
+      timeout: 30000,
+      error: function (requete) {
+        zoneResultat.text("{{Le démon ne répond pas.}}");
+      },
+      success: function (donnees) {
+        if (donnees.state != 'ok') {
+          zoneResultat.text(donnees.result);
+          return;
+        }
+        zoneResultat.text(donnees.result.message);
+        $('#jeeroborockEtatCompte').text(donnees.result.badge)
+          .removeClass('label-success label-default label-warning')
+          .addClass(donnees.result.badgeClasse);
+      },
+      complete: function () {
+        jeeroborockVerrouTest = false;
+        $('#bt_jeeroborockTesterConnexion').removeClass('disabled');
       }
     });
   });

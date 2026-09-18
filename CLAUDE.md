@@ -143,10 +143,13 @@ Disposition Jeedom fixe (type MVC), nommée d'après l'id `jeeroborock`.
   `POST /rpc` + `GET /sante`) et le mapping des exceptions dans **`erreurs.py`** ; `jeeroborockd.py` ne
   garde que le cycle de vie. Ajouter une opération = `canal.enregistrer('<nom>', <coroutine>)`.
   UC04 a posé **`authentification.py`** (opérations `demanderCode`, `validerCode`, `restaurerSession`,
-  sérialisation du `UserData`) : **un module par domaine fonctionnel**, enregistré explicitement depuis
+  rejointes en UC05 par `etatCompte`, plus la sérialisation du `UserData`) : **un module par domaine
+  fonctionnel**, enregistré explicitement depuis
   `jeeroborockd.py` — pas par effet de bord d'import. L'instance `RoborockApiClient` vit dans
   `contexte['auth']` et **doit** survivre entre l'envoi du code et sa validation (`header_clientid` dérive
   d'un identifiant régénéré à chaque instanciation) ; la session restaurée vit dans `contexte['session']`.
+  ⚠️ Toute opération qui ne fait qu'**interroger la validité de la session** appartient à ce module — ne
+  lui crée pas de module voisin, ce serait importer ses helpers privés de sérialisation depuis l'extérieur.
   ⚠️ **Ne jamais sérialiser `contexte` en bloc** dans une réponse : il porte désormais des secrets.
   ⚠️ Ces coroutines tournent dans la **boucle asyncio unique** du démon : tout appel bloquant gèle **tout**
   le canal, `/sante` compris, et se présente à l'utilisateur comme « le démon ne répond pas » alors que le

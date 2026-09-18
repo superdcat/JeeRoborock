@@ -27,12 +27,18 @@
 #
 # Import garde par try/except ImportError : le demon doit rester lancable meme sur un
 # venv partiellement installe (les operations retombent alors en INTERNAL_ERROR).
+#
+# UC05 ajoute etat_compte : sonde legere de l'etat du compte (session valide ? nombre de
+# robots ?), pilotee par le PHP via le parametre avecInventaire (D-05-2/D-05-8). Le PHP
+# pousse toujours la session en parametre (jamais de lecture de contexte['session']) :
+# l'operation est idempotente et immune a un redemarrage du demon.
 
 import base64
 import json
+import logging
 import re
 
-from erreurs import ErreurDemon
+from erreurs import ErreurDemon, code_pour_exception
 
 try:
     from roborock.data import UserData
@@ -169,7 +175,73 @@ async def restaurer_session(parametres, contexte):
     return {"authentifie": True}
 
 
+def _client_compte(email, base_url):
+    """Cree un client dedie a la sonde d'etat de compte (UC05), independant de
+    contexte['auth'] (reserve au flux demanderCode/validerCode). base_url=(valeur or
+    None) : passer une chaine vide au lieu de None casse TOUTES les requetes (R-8)."""
+    return RoborockApiClient(email, base_url=(base_url or None))
+
+
+async def _sonder_session(client, user_data):
+    """Sonde de validite de session qui ne consomme AUCUN quota (D-05-2/R-1) : la SEULE
+    requete authentifiee de web_api.py non protegee par un limiteur. Garde hasattr/callable
+    : si la lib supprime/renomme cette methode privee, on n'improvise JAMAIS de repli sur
+    get_home_data_v3 (qui brulerait du quota a l'insu de l'utilisateur)."""
+    sonde = getattr(client, "_get_home_id", None)
+    if not callable(sonde):
+        logging.error("etat_compte : sonde _get_home_id absente de python-roborock (changement de version ?)")
+        raise ErreurDemon("INTERNAL_ERROR")
+    await sonde(user_data)
+
+
+async def etat_compte(parametres, contexte):
+    if not _IMPORT_OK:
+        raise ErreurDemon("INTERNAL_ERROR")
+
+    user_data_brut = parametres.get("userData") or ""
+    if user_data_brut == "":
+        raise ErreurDemon("NOT_AUTHENTICATED")
+
+    base_url = parametres.get("baseUrl") or ""
+    email = parametres.get("email") or ""
+    avec_inventaire = bool(parametres.get("avecInventaire"))
+
+    user_data = _decoder_user_data(user_data_brut)
+    client = _client_compte(email, base_url)
+
+    nb_robots = None
+    quota_inventaire = False
+
+    if avec_inventaire:
+        try:
+            home = await client.get_home_data_v3(user_data)
+            nb_robots = len(home.get_all_devices())
+            # 'home' (HomeData) n'est JAMAIS journalise ni retourne : il porte les local_key
+            # (R-10). Seul l'entier derive en sort.
+        except Exception as erreur:
+            code, _nom = code_pour_exception(erreur)
+            if code != "RATE_LIMIT":
+                raise
+            # Refus LOCAL du limiteur uniquement (D-05-6) : degrade sans faire echouer le
+            # test, la sonde confirme quand meme la validite de la session. Le refus
+            # SERVEUR (RATE_LIMIT_REMOTE) n'est jamais rattrape ici : il remonte tel quel.
+            quota_inventaire = True
+            await _sonder_session(client, user_data)
+    else:
+        await _sonder_session(client, user_data)
+
+    # Succes : la session en contexte est reamorcee (idempotent, cf. restaurer_session).
+    contexte["session"] = {
+        "userData": _encoder_user_data(user_data),
+        "baseUrl": str(base_url),
+        "email": email,
+    }
+
+    return {"verifiee": True, "nbRobots": nb_robots, "quotaInventaire": quota_inventaire}
+
+
 def enregistrer_operations():
     canal.enregistrer("demanderCode", demander_code)
     canal.enregistrer("validerCode", valider_code)
     canal.enregistrer("restaurerSession", restaurer_session)
+    canal.enregistrer("etatCompte", etat_compte)

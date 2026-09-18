@@ -14,7 +14,10 @@
 > Deux analyses **génériques Jeedom** (vérifiées contre la source du core) sont réutilisables par tout
 > plugin ; les analyses préfixées **`jeeroborock-`** sont **propres à ce plugin** (intégration Roborock).
 >
-> **Dernière mise à jour** : 2026-09-18 (UC04 : `jeedom-config-plugin-defauts.md` § 6 — le verrou de
+> **Dernière mise à jour** : 2026-09-18 (UC05 : `jeeroborock-cloud-api.md` § 4.1 — sonde de session sans
+> quota via `getHomeDetail`, refus du limiteur `home_data` détecté avant tout appel réseau,
+> `get_all_devices()` = robots propres + partagés, piège `base_url=""`. Avant : UC04 —
+> `jeedom-config-plugin-defauts.md` § 6 — le verrou de
 > session tenu pendant les hooks `preConfig_` ; `jeeroborock-cloud-api.md` §§ 2.1/2.3 — pièges du limiteur
 > de login et de la sérialisation de `UserData`, § 8.2 — mapping réseau corrigé via `__cause__` ;
 > `jeeroborock-architecture.md` D4 étape 4 corrigée. Avant : UC03 — contrat du canal PHP↔démon référencé au
@@ -42,6 +45,7 @@
 | **Quel code d'erreur** pour telle situation, et son message FR ; ⚠️ **ajouter un code de famille A ou B se fait dans DEUX fichiers** (`jeeroborockDaemon::tableMessages()` **et** `jeeroborockException::estErreurCanal()`) — aucun contrôle automatique ne détecte l'oubli | `.memory/specs/MVP/03-pont-php-demon-tech.md` § Table exhaustive + § Dette |
 | Exceptions `python-roborock` 7.8.0 (**23**) → code stable → message français | `jeeroborock-cloud-api.md` § 8 (source de vérité : spec technique UC03) |
 | Où **stocker les identifiants Roborock** (config chiffrée vs cache), ré-authentification, quotas/rate-limits | `jeeroborock-architecture.md` D4/D6 + `jeeroborock-cloud-api.md` §§ 2, 4 |
+| **Vérifier qu'une session Roborock est encore valide SANS consommer de quota** (sonde `getHomeDetail`, seule requête authentifiée sans limiteur) ; détecter un quota `homedata` atteint **sans appel réseau** ; compter les robots (propres **et** partagés) ; ⚠️ piège `base_url=""` | `jeeroborock-cloud-api.md` § 4.1 |
 | **Clés de configuration plugin** (`email`, `portDemonHttp`, `userData`), **port du canal local** (valeur, défaut `.ini`, `getPortDemonHttp()`), validation `preConfig_` | `jeeroborock-architecture.md` D3/D4 + `.memory/specs/MVP/01-config-plugin-tech.md` |
 | **Valeur par défaut d'une config plugin** Jeedom : pourquoi un `value=` HTML ne marche pas, et le piège du court-circuit de `preConfig_` | `jeedom-config-plugin-defauts.md` |
 | ⚠️ **Un hook `preConfig_`/`postConfig_` qui appelle le réseau FIGE l'interface Jeedom** : `core/ajax/config.ajax.php` ne relâche **jamais** le verrou de session → le hook doit faire son propre `session_write_close()` sous garde | `jeedom-config-plugin-defauts.md` § 6 |

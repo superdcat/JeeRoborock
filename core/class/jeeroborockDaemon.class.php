@@ -24,6 +24,7 @@ class jeeroborockDaemon {
   const TIMEOUT_SANTE        = 3;     // s, /sante ne fait aucune I/O
   const TIMEOUT_AUTH         = 25;    // s, demanderCode / validerCode (chaine 2 a 6 requetes HTTPS)
   const TIMEOUT_SESSION      = 3;     // s, restaurerSession ne fait aucune I/O reseau
+  const TIMEOUT_COMPTE       = 20;    // s, etatCompte (1 a 2 requetes HTTPS nominales, 6 au pire)
   const TIMEOUT_MAX          = 60;    // s, plafond dur - garantit AC1 quel que soit l'appelant
   const TIMEOUT_CONNEXION_MS = 2000;  // ms, connexion loopback
   const MARGE_BUDGET_MS      = 1000;  // ms laissees au demon pour serialiser sa reponse

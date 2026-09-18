@@ -21,6 +21,8 @@
         "Roborock envoie un code à usage unique à l'adresse e-mail enregistrée. Enregistrez la configuration avant de demander un code.": "Roborock sends a one-time code to the registered e-mail address. Save the configuration before requesting a code.",
         "Envoyer un code": "Send a code",
         "Valider le code": "Validate the code",
+        "Tester la connexion": "Test the connection",
+        "Test en cours…": "Testing…",
         "Envoi du code en cours…": "Sending the code…",
         "Code envoyé, vérifiez vos e-mails": "Code sent, check your e-mails",
         "Saisissez le code reçu par e-mail.": "Enter the code received by e-mail.",
@@ -84,6 +86,16 @@
         "Une erreur interne est survenue. Consultez le log du plugin.": "An internal error occurred. Check the plugin log.",
         "Saisissez le code reçu par e-mail (4 à 12 caractères alphanumériques).": "Enter the code received by e-mail (4 to 12 alphanumeric characters).",
         "Renseignez l'adresse e-mail du compte Roborock et enregistrez la configuration avant de demander un code.": "Enter the Roborock account e-mail address and save the configuration before requesting a code.",
-        "Le compte a été authentifié mais la session n'a pas pu être enregistrée. Consultez le log du plugin.": "The account was authenticated but the session could not be saved. Check the plugin log."
+        "Le compte a été authentifié mais la session n'a pas pu être enregistrée. Consultez le log du plugin.": "The account was authenticated but the session could not be saved. Check the plugin log.",
+        "Non configuré": "Not configured",
+        "Aucune adresse e-mail n'est renseignée : saisissez l'adresse du compte Roborock dans cette page et enregistrez la configuration.": "No e-mail address is set: enter the Roborock account address on this page and save the configuration.",
+        "Compte Roborock non lié": "Roborock account not linked",
+        "Le compte Roborock n'est pas lié : demandez un code de connexion pour authentifier le compte.": "The Roborock account is not linked: request a login code to authenticate the account.",
+        "Compte Roborock lié": "Roborock account linked",
+        "Authentifié — %1$s robot(s) détecté(s) (inventaire du %2$s)": "Authenticated — %1$s robot(s) detected (inventory from %2$s)",
+        "Authentifié — le nombre de robots n'a pas pu être relevé : le quota d'inventaire Roborock est atteint, réessayez plus tard.": "Authenticated — the number of robots could not be retrieved: the Roborock inventory quota has been reached, try again later.",
+        "Authentifié — le nombre de robots n'a pas pu être relevé.": "Authenticated — the number of robots could not be retrieved.",
+        "Ré-authentification requise": "Re-authentication required",
+        "Serveur du compte : %s": "Account server: %s"
     }
 }

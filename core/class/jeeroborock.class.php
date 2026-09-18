@@ -39,6 +39,12 @@ class jeeroborock extends eqLogic {
   // d'octets).
   const LONGUEUR_MAX_USERDATA = 8192;
 
+  // Cache PHP de l'inventaire du compte (UC05, D-05-1) : survit au redémarrage du démon
+  // comme à celui de Jeedom, contrairement au limiteur de quota de python-roborock (compteur
+  // par processus). TTL 24h : arbitrage utilisateur explicite, pas une valeur par défaut.
+  const DUREE_CACHE_INVENTAIRE = 86400;
+  const CLE_CACHE_INVENTAIRE = 'jeeroborock::inventaireCompte';
+
   // Attention : userData contient le jeton de session et les identifiants dérivés rriot.
   // Ne jamais définir preConfig_userData / postConfig_userData : une exception levée depuis
   // une frame qui reçoit ce paramètre exposerait le secret via displayException() (trace complète
@@ -79,6 +85,17 @@ class jeeroborock extends eqLogic {
     return self::getUserData() != '';
   }
 
+  // Unique point de lecture de l'e-mail du compte (UC05, D-05-1 de la spec technique).
+  // Retombe sur une chaîne vide si absent ou invalide, sans lever. Solde la dette explicite
+  // d'UC04 : demanderCode/validerCode l'utilisent désormais aussi, messages inchangés.
+  public static function getEmailCompte() {
+    $valeur = trim((string) config::byKey('email', 'jeeroborock', ''));
+    if ($valeur == '' || !filter_var($valeur, FILTER_VALIDATE_EMAIL)) {
+      return '';
+    }
+    return $valeur;
+  }
+
   // Unique point de lecture du blob userData. Le garde is_string n'est pas cosmétique :
   // config::byKey applique is_json($v, $v), qui convertirait en tableau PHP toute valeur
   // décodable comme JSON - précisément ce que l'encodage base64 (D-04-4) empêche.
@@ -96,6 +113,46 @@ class jeeroborock extends eqLogic {
       return '';
     }
     return $valeur;
+  }
+
+  /*     * ***********************Cache de l'inventaire du compte (UC05)********** */
+
+  // Lit le cache PHP de l'inventaire (D-05-1). Retourne null si absent, expiré ou non
+  // conforme : l'expiration est portée par le moteur de cache du core (getValue('') sur
+  // une entrée expirée) - ne jamais recalculer le TTL à la main, c'est ce mécanisme qui
+  // porte AC4.
+  public static function getInventaireCompte() {
+    $valeur = cache::byKey(self::CLE_CACHE_INVENTAIRE)->getValue('');
+    if (!is_array($valeur) || !isset($valeur['nbRobots'], $valeur['horodatage'])) {
+      return null;
+    }
+    if (!is_numeric($valeur['nbRobots']) || intval($valeur['nbRobots']) < 0) {
+      return null;
+    }
+    if (!is_numeric($valeur['horodatage']) || intval($valeur['horodatage']) < 0) {
+      return null;
+    }
+    return array('nbRobots' => intval($valeur['nbRobots']), 'horodatage' => intval($valeur['horodatage']));
+  }
+
+  // Met en cache le nombre de robots (24h, D-05-4). NE LEVE JAMAIS : un incident de cache
+  // ne doit jamais faire échouer un test de connexion.
+  public static function enregistrerInventaireCompte($_nbRobots) {
+    try {
+      cache::set(self::CLE_CACHE_INVENTAIRE, array('nbRobots' => intval($_nbRobots), 'horodatage' => time()), self::DUREE_CACHE_INVENTAIRE);
+    } catch (Throwable $e) {
+      log::add('jeeroborock', 'warning', 'enregistrerInventaireCompte : échec de mise en cache : ' . $e->getMessage());
+    }
+  }
+
+  // Purge le cache de l'inventaire (déliaison/nouvelle liaison, D-05-4) : sans quoi le test
+  // afficherait le nombre de robots de l'ancien compte. NE LEVE JAMAIS.
+  public static function oublierInventaireCompte() {
+    try {
+      cache::delete(self::CLE_CACHE_INVENTAIRE);
+    } catch (Throwable $e) {
+      log::add('jeeroborock', 'warning', 'oublierInventaireCompte : échec de purge : ' . $e->getMessage());
+    }
   }
 
   // Persiste la session obtenue par jeeroborockDaemon::appeler('validerCode', ...). NE LEVE
@@ -124,6 +181,7 @@ class jeeroborock extends eqLogic {
       // qu'au tout dernier enregistrement.
       config::save('baseUrl', $baseUrl, 'jeeroborock');
       config::save('userData', $userData, 'jeeroborock');
+      self::oublierInventaireCompte();
       return true;
     } catch (Throwable $e) {
       log::add('jeeroborock', 'error', 'enregistrerSession : échec de persistance, consultez la configuration du plugin');
@@ -145,6 +203,7 @@ class jeeroborock extends eqLogic {
     } catch (Throwable $e) {
       log::add('jeeroborock', 'error', 'oublierSession : échec de persistance : ' . $e->getMessage());
     }
+    self::oublierInventaireCompte();
 
     log::add('jeeroborock', 'info', 'Compte Roborock délié (e-mail modifié)');
     message::removeAll('jeeroborock', 'session_deliee');

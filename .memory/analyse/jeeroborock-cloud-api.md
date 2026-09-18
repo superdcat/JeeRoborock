@@ -160,6 +160,42 @@ Points clés :
 **Quota** (limiteur interne à la lib) : **1/s, 3/min, 5/h, 40/jour** → `RoborockRateLimit`. Le home data
 est une opération de **découverte**, pas de rafraîchissement.
 
+### 4.1 Vérifier une session **sans consommer de quota** (constaté en UC05, 2026-09-18)
+
+⚠️ **`_get_home_id()` (`GET /api/v1/getHomeDetail`) est la SEULE requête authentifiée de `web_api.py`
+qui n'est protégée par AUCUN limiteur.** Vérifié en 7.8.0 : `try_acquire` n'apparaît que dans
+`request_code*`, `pass_login` (limiteur `login`) et `get_home_data*` (limiteur `home_data`).
+
+C'est donc **la** sonde canonique pour répondre à « cette session est-elle encore valide ? » à coût nul —
+sans toucher au quota `homedata` (40/jour) ni à celui du login (20/jour). UC05 en fait le cœur de son test
+de connexion ; UC10 (robustesse) et UC11 (ré-authentification) devraient réutiliser le même mécanisme.
+
+Trois précautions qui vont avec :
+
+- **C'est une méthode privée** (préfixe souligné) : couplage à l'interne de la lib, tenable parce que la
+  version est épinglée. Garder un `hasattr`/`callable` + échec explicite si elle disparaît, et **jamais**
+  de repli silencieux sur `get_home_data_v3()` — qui brûlerait du quota à l'insu de l'utilisateur.
+  **À revérifier à chaque montée de version.**
+- **L'existence d'un quota SERVEUR sur cet endpoint est inconnue** : aucun garde-fou côté client, donc
+  prévoir au minimum un verrou anti-rafale côté plugin (UC05 s'en tient au verrou de bouton).
+- Le refus d'authentification n'est mappé en `RoborockInvalidCredentials` que sur le code **`2010`** ;
+  tout autre code de refus arrive en `RoborockException` **nue** (→ erreur non identifiée). Enrichir le
+  mapping si la recette en révèle d'autres — sans jamais parser le message anglais de la lib.
+
+**Corollaire gratuit sur le quota (AC6 d'UC05)** : `get_home_data_v3()` appelle
+`try_acquire("home_data", blocking=False)` en **toute première instruction**. Un quota déjà atteint est
+donc détecté **avant le moindre paquet réseau** — inutile d'implémenter un compteur maison, qui serait de
+toute façon aveugle à la consommation de l'**application mobile** (même quota).
+
+**Nombre de robots du compte** : `HomeData.get_all_devices()` (méthode publique) concatène `devices` et
+`received_devices` — donc robots propres **et** robots partagés, ce que l'utilisateur voit dans son
+application.
+
+⚠️ **Piège du constructeur** : `RoborockApiClient(username, base_url=...)` — le getter retourne **toute**
+valeur non nulle, **chaîne vide comprise**. Passer `""` (au lieu de la valeur nulle) produit une base
+d'URL vide et casse **toutes** les requêtes avec un symptôme obscur. Toujours écrire
+`base_url=(valeur or None)`.
+
 ## 5. Routines / scènes (« usages » programmés dans l'app) — exigence MVP
 
 C'est du **pur HTTPS signé**, indépendant de MQTT : une routine s'exécute même si le canal robot est
