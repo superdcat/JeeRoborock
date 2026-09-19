@@ -996,13 +996,14 @@ class jeeroborock extends eqLogic {
       return __('Les dépendances Python sont en cours d\'installation.', __FILE__);
     }
 
+    // system::getPython3VenvDir() est PRIVEE dans le core : elle n'est pas appelable depuis le
+    // plugin (Fatal error au runtime). getCmdPython3() renvoie deja le chemin de l'interpreteur
+    // du venv ('<venv>/bin/python3 ', espace finale incluse) sur un OS ou le core gere un venv par
+    // plugin, et 'python3 ' sinon : un chemin ABSOLU identifie le cas venv et EST le chemin a tester.
     $cheminInterpreteur = trim(system::getCmdPython3('jeeroborock'));
-    if (strpos($cheminInterpreteur, '/') === 0) {
-      $cheminVenv = system::getPython3VenvDir('jeeroborock') . '/bin/python3';
-      if (!file_exists($cheminVenv)) {
-        log::add('jeeroborock', 'debug', 'Interpreteur Python attendu introuvable : ' . $cheminVenv);
-        return __('Les dépendances Python ne sont pas installées.', __FILE__);
-      }
+    if (strpos($cheminInterpreteur, '/') === 0 && !file_exists($cheminInterpreteur)) {
+      log::add('jeeroborock', 'debug', 'Interpreteur Python attendu introuvable : ' . $cheminInterpreteur);
+      return __('Les dépendances Python ne sont pas installées.', __FILE__);
     }
 
     if (self::estPortLocalOccupe(self::getPortDemonHttp())) {

@@ -38,8 +38,16 @@ Autres constats utiles :
   installation est en cours » depuis `deamon_info()`.
 - `system::getCmdPython3($_plugin)` ne dépend **pas** de l'existence du venv : c'est une pure fonction
   de l'OS (`''` ou Debian < 12 → `'python3 '` ; sinon `getPython3VenvDir($_plugin) . '/bin/python3 '`,
-  **espace finale incluse**). Pour savoir si les dépendances sont réellement installées, il faut un
-  `file_exists()` sur `getPython3VenvDir($_plugin) . '/bin/python3'`, pas une inspection du retour.
+  **espace finale incluse**). Pour savoir si les dépendances sont réellement installées, il faut donc
+  un `file_exists()` sur le chemin de l'interpréteur du venv, pas une inspection du retour.
+- ⚠️ **`system::getPython3VenvDir()` est `private`** — un plugin ne peut **pas** l'appeler pour
+  reconstruire ce chemin : `Call to private method system::getPython3VenvDir() from scope <id>`,
+  **fatal au runtime et invisible à `php -l`**. Vécu à l'installation du plugin (2026-09-19), remonté
+  en `deamon_info en erreur : …` à chaque passe du core. **Le seul chemin public est le retour de
+  `getCmdPython3()` lui-même** : `trim()`, puis un chemin **absolu** (`strpos(…, '/') === 0`) signifie
+  « cas venv » et **est** le chemin à tester ; un `'python3'` nu signifie « pas de venv sur cet OS », et
+  il n'y a alors rien à vérifier. Corollaire général : avant d'appeler un helper `system::` repéré dans
+  la source du core, vérifier sa **visibilité** — tout n'y est pas `public`.
 
 ## 2. ⚠️ Le garde-fou « dépendances » du core ne s'applique pas sans `dependancy_info()`
 
