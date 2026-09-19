@@ -56,6 +56,16 @@
 # fermee (RESET_CONSOMMABLES, D-12-3 - pas d'extension de ACTIONS, qui ne porte que des
 # RPC sans parametre). consommables.py est un module de pures donnees, jamais importe
 # par un autre module que celui-ci et supervision.py.
+#
+# UC13 (etat de la station d'accueil) etend capacites_etat()/valeurs_etat() - les DEUX
+# fonctions partagees par les trois chemins de publication existants (lire_etat,
+# envoyer_commande relecture post-action, supervision._lot) - de 5 capacites et 6
+# valeurs de station, calculees via _dock() (D-13-2b, trois niveaux explicites, jamais
+# de try/except generique). Aucune operation RPC nouvelle, aucun appel reseau
+# supplementaire : tous les champs de station sont deja dans StatusV2, rafraichi par
+# status.refresh(). valeurs_etat() gagne un parametre features OBLIGATOIRE (sans
+# defaut : un site d'appel oublie doit lever un TypeError bruyant, pas produire une
+# tuile de station vide en silence).
 
 import asyncio
 import hashlib
@@ -68,6 +78,11 @@ from roborock.devices.device_manager import UserParams, create_device_manager
 # ConsumableAttribute n'est PAS reexporte par roborock/__init__.py (verifie sur la 7.8.0) :
 # il s'importe par son chemin complet, comme le fait la librairie elle-meme dans cli.py.
 from roborock.devices.traits.v1.consumeable import ConsumableAttribute
+# UC13 - RoborockDockFeatures n'est PAS non plus reexporte par roborock/__init__.py
+# (module de premier niveau roborock.device_features, verifie sur la 7.8.0) : un import
+# depuis la racine leverait un ImportError AU CHARGEMENT de ce module, donc un demon qui
+# ne demarre plus du tout - chemin complet obligatoire.
+from roborock.device_features import RoborockDockFeatures
 
 import canal
 import consommables
@@ -125,6 +140,12 @@ ACTIONS = {
 # DeviceManager = deux homedata (quota dur 5/h, 40/jour, partage avec l'application
 # mobile de l'utilisateur) et deux sessions MQTT sur le meme compte.
 _VERROU_GESTIONNAIRE = asyncio.Lock()
+
+# UC13 - duids deja journalises pour un repli de _dock() (D-13-2b) : n'avertit qu'une
+# fois par duid et par niveau, sans quoi un dock_type durablement absent ou une API
+# "experimental" disparue noierait le log a chaque rafraichissement.
+_REPLIS_DOCK_JOURNALISES = set()
+_RECOURS_DOCK_JOURNALISES = set()
 
 # Codes stables consideres comme "le robot n'a pas repondu" pendant la lecture de
 # l'etat (§ Budget de temps) : etatLu passe a False mais l'operation reste un SUCCES
@@ -255,11 +276,53 @@ async def fermer_gestionnaire(contexte):
         logging.warning("Fermeture du gestionnaire en erreur (arret du demon) : %s", erreur)
 
 
-def capacites_etat(status, features):
-    """7 booleens - DEUX FAMILLES, VOLONTAIREMENT NON FACTORISEES (cf. spec § Detection
+def _dock(status, features, duid):
+    """UC13/D-13-2b - RoborockDockFeatures effectives : TROIS NIVEAUX EXPLICITES, et
+    JAMAIS de try/except generique autour du chemin nominal (une revue a refuse un
+    dispositif de degradation SILENCIEUSE, indiscernable du fonctionnement nominal).
+
+    1. nominal  : status.dock_type present -> from_dock_type(status.dock_type,
+       has_am=status.has_am), SANS try/except - status.dock_type/has_am sont sources,
+       une AttributeError ici EST un bug de montee de version et doit remonter
+       bruyamment (classee par le try/except du handler RPC ou de l'iteration de
+       sonde). Recalcul volontaire plutot que lire features.dock_features d'emblee :
+       ce dernier peut etre reste au defaut o0_dock si discover_features() a echoue,
+       alors que le status.refresh() qu'on vient de reussir porte le dock_type a jour -
+       c'est EXACTEMENT l'expression de la librairie en decouverte, et from_dock_type
+       est @cache, donc de cout nul.
+    2. repli    : status.dock_type absent -> features.dock_features (capacites deja
+       decouvertes), log info UNE FOIS PAR DUID.
+    3. recours  : niveau 2 indisponible (API "experimental" disparue) ->
+       from_dock_type(None) -> tout False, log warning UNE FOIS PAR DUID."""
+    if status.dock_type is not None:
+        return RoborockDockFeatures.from_dock_type(status.dock_type, has_am=status.has_am)
+
+    dock_features = getattr(features, "dock_features", None)
+    if dock_features is not None:
+        if duid not in _REPLIS_DOCK_JOURNALISES:
+            _REPLIS_DOCK_JOURNALISES.add(duid)
+            logging.info(
+                "_dock : dock_type absent de la reponse d'etat, repli sur les capacites decouvertes duid=%s",
+                _texte(duid, 16),
+            )
+        return dock_features
+
+    if duid not in _RECOURS_DOCK_JOURNALISES:
+        _RECOURS_DOCK_JOURNALISES.add(duid)
+        logging.warning(
+            "_dock : dock_type et capacites decouvertes indisponibles, station traitee comme basique duid=%s",
+            _texte(duid, 16),
+        )
+    return RoborockDockFeatures.from_dock_type(None)
+
+
+def capacites_etat(status, features, duid):
+    """12 booleens - TROIS FAMILLES, VOLONTAIREMENT NON FACTORISEES (cf. spec § Detection
     de capacites). NE PAS unifier : device_features.py (l.98-99) renvoie True par
     defaut quand un champ n'a AUCUNE metadonnee, donc "X or is_field_supported(...)"
-    vaudrait True en permanence pour clean_area/clean_time."""
+    vaudrait True en permanence pour clean_area/clean_time - et, depuis UC13, pour
+    dock_type/dust_collection_status/wash_*, qui n'ont eux non plus AUCUNE metadonnee :
+    la famille 3 n'appelle donc JAMAIS is_field_supported()."""
     # Famille 1 (metadonnee dps/feature) : is_field_supported(...) OR valeur presente -
     # garde-fou contre un faux negatif quand product.supported_schema_ids vaut set()
     # (HomeDataProduct.schema absent).
@@ -273,6 +336,17 @@ def capacites_etat(status, features):
     surface_nettoyee = status.clean_area is not None
     duree_nettoyage = status.clean_time is not None
 
+    # UC13 - Famille 3 (modele de capacites de dock, D-13-2) : RoborockDockFeatures,
+    # miroir du modele de capacites de l'application Roborock. station_manque_eau est un
+    # HYBRIDE famille 1 ∧ famille 3 (has_dock, conjoint a la metadonnee dps/feature de
+    # water_shortage_status) : AC3 interdit toute information d'entretien de station sur
+    # une station basique, y compris le manque d'eau.
+    dock = _dock(status, features, duid)
+    station_manque_eau = dock.has_dock and (
+        features.is_field_supported(StatusV2, StatusField.WATER_SHORTAGE_STATUS)
+        or status.water_shortage_status is not None
+    )
+
     return {
         "etat": etat,
         "batterie": batterie,
@@ -281,14 +355,25 @@ def capacites_etat(status, features):
         "surfaceNettoyee": surface_nettoyee,
         "dureeNettoyage": duree_nettoyage,
         "avancement": avancement,
+        "stationVidage": dock.is_collectable,
+        "stationLavage": dock.is_washable,
+        "stationSechage": dock.is_dryable,
+        "stationErreur": dock.has_dock,
+        "stationManqueEau": station_manque_eau,
     }
 
 
-def valeurs_etat(status):
+def valeurs_etat(status, features, duid):
     """Cles ABSENTES quand la valeur correspondante est None : jamais de 0/'' par
     defaut (AC4). Conversions faites ICI, jamais en PHP (clean_area est en mm2, unite
     m2 via la PROPRIETE de la librairie square_meter_clean_area ; clean_time est en
-    secondes, converti en minutes entieres)."""
+    secondes, converti en minutes entieres).
+
+    UC13 - parametre features desormais OBLIGATOIRE (sans defaut) : necessaire pour
+    calculer les capacites de station (D-13-2) qui gouvernent la presence des 6 cles de
+    station ci-dessous. Un parametre optionnel ferait diverger SILENCIEUSEMENT le
+    comportement d'un site d'appel oublie (capacite vraie mais valeur absente -> tuile
+    vide permanente) ; un TypeError bruyant est prefere."""
     valeurs = {}
     if status.state is not None:
         valeurs["etatCode"] = int(status.state)
@@ -305,6 +390,36 @@ def valeurs_etat(status):
         valeurs["dureeNettoyageMin"] = int(status.clean_time // 60)
     if status.clean_percent is not None:
         valeurs["avancement"] = int(status.clean_percent)
+
+    # UC13/D-13-6 - DIVERGENCE ASSUMEE avec la regle "cle absente quand la source est
+    # None" appliquee ci-dessus : merge_trait_values() (devices/traits/v1/common.py)
+    # recopie tous les champs, None compris - une reponse get_status qui omet
+    # dock_error_status EFFACE la valeur du trait. Sous la regle ci-dessus,
+    # appliquerValeurs() laisserait alors la commande FIGEE sur la derniere erreur, ce
+    # qui casserait AC5 de facon durable et silencieuse. Ici, le drapeau de capacite
+    # garantit deja l'existence de la station et le champ appartient a la MEME reponse
+    # get_status qui vient d'aboutir : son absence signifie "rien a signaler", pas
+    # "inconnu" - la cle est donc TOUJOURS ecrite des que la capacite est vraie, avec la
+    # valeur normale quand la source est None. Cf. spec technique UC13 § D-13-6.
+    dock = _dock(status, features, duid)
+    if dock.is_collectable:
+        valeurs["stationVidage"] = libelles.libelle_vidage(status.state, status.dust_collection_status)
+    if dock.is_washable:
+        valeurs["stationLavage"] = libelles.libelle_lavage(
+            status.state, status.wash_status, status.wash_phase, status.wash_ready
+        )
+    if dock.is_dryable:
+        valeurs["stationSechage"] = libelles.libelle_sechage(status.state, status.dry_status)
+    if dock.has_dock:
+        valeurs["stationErreurCode"] = int(status.dock_error_status) if status.dock_error_status is not None else 0
+        valeurs["stationErreurLibelle"] = libelles.libelle_erreur_station(status.dock_error_status)
+        manque_eau_supportee = (
+            features.is_field_supported(StatusV2, StatusField.WATER_SHORTAGE_STATUS)
+            or status.water_shortage_status is not None
+        )
+        if manque_eau_supportee:
+            valeurs["stationManqueEau"] = bool(status.water_shortage_status)
+
     return valeurs
 
 
@@ -361,8 +476,8 @@ async def lire_etat(parametres, contexte):
 
     status = appareil.v1_properties.status
     features = appareil.v1_properties.device_features
-    capacites = capacites_etat(status, features)
-    valeurs = valeurs_etat(status)
+    capacites = capacites_etat(status, features, duid)
+    valeurs = valeurs_etat(status, features, duid)
     # Relu APRES la RPC : c'est cette valeur (pas celle d'avant la tentative de
     # connexion) qui porte AC6.
     connecte = appareil.is_connected
@@ -486,8 +601,8 @@ async def envoyer_commande(parametres, contexte):
             await asyncio.wait_for(appareil.v1_properties.status.refresh(), min(DELAI_RELECTURE_S, restant))
             status = appareil.v1_properties.status
             features = appareil.v1_properties.device_features
-            capacites = capacites_etat(status, features)
-            etat = valeurs_etat(status)
+            capacites = capacites_etat(status, features, duid)
+            etat = valeurs_etat(status, features, duid)
             etat_lu = True
         except Exception as erreur:
             # Relecture BEST-EFFORT : ne relever JAMAIS (l'action a reussi, la transformer

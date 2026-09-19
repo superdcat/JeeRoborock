@@ -45,6 +45,10 @@
 # _sonde EXISTANTE, en tete d'iteration - PAS de nouvelle tache asyncio. demarrer(),
 # arreter() et _reconcilier() restent STRICTEMENT INCHANGEES (idempotence UC10 non
 # touchee, exigence d'acceptation).
+#
+# UC13 (etat de la station d'accueil) touche UNIQUEMENT _lot() (2 lignes : remonter
+# features hors du garde avec_capacites, le passer a robots.valeurs_etat() devenu
+# obligatoire). Cadence, demarrer()/arreter()/_reconcilier()/_sonde() : INCHANGEES.
 
 import asyncio
 import hashlib
@@ -366,10 +370,13 @@ def _lot(appareil, etat_lu, motif, avec_capacites, avec_en_ligne):
         lot["enLigne"] = bool(getattr(appareil.device_info, "online", False))
     if etat_lu:
         status = appareil.v1_properties.status
-        lot["etat"] = robots.valeurs_etat(status)
+        # UC13 - features remontee HORS du garde avec_capacites : valeurs_etat() en a
+        # desormais besoin (parametre obligatoire) pour gater ses 6 cles de station par
+        # capacite (D-13-6), pas seulement capacites_etat() lors du premier lot/echec.
+        features = appareil.v1_properties.device_features
+        lot["etat"] = robots.valeurs_etat(status, features, appareil.duid)
         if avec_capacites:
-            features = appareil.v1_properties.device_features
-            lot["capacites"] = robots.capacites_etat(status, features)
+            lot["capacites"] = robots.capacites_etat(status, features, appareil.duid)
     # UC12 - INDEPENDANT de etat_lu (cycles distincts) : le push dps 125/126/127 met le
     # trait consumables a jour en RAM sans RPC, donc un lot peut porter un instantane a
     # jour meme quand ce cycle-la n'a pas relu le status. Cout nul si le trait est vide.

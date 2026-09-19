@@ -82,6 +82,12 @@
         "Réinitialiser le filtre": "Filter zurücksetzen",
         "Réinitialiser les capteurs": "Sensoren zurücksetzen",
         "Réinitialiser le rouleau de serpillière": "Wischwalze zurücksetzen",
+        "État vidage poussière": "Status Staubentleerung",
+        "État lavage serpillière": "Status Wischmopp-Reinigung",
+        "État séchage serpillière": "Status Wischmopp-Trocknung",
+        "Erreur station": "Stationsfehler",
+        "Code d'erreur station": "Stationsfehlercode",
+        "Manque d'eau": "Wassermangel",
         "Compteur d'usure de « %s » réinitialisé.": "Verschleißzähler von „%s“ zurückgesetzt."
     },
     "plugins/jeeroborock/core/class/jeeroborockDaemon.class.php": {

@@ -170,8 +170,10 @@ Disposition Jeedom fixe (type MVC), nommée d'après l'id `jeeroborock`.
   remplacement sont un contrat tiers épinglé, les recopier créerait une seconde source de vérité qui se
   désynchroniserait silencieusement à la montée de version. L'import est donc **gardé**, et `TABLE`
   reste peuplée de ses 5 clés même sans librairie — sinon la liste blanche du reset se viderait.
-  ⚠️ Corollaire général vérifié en UC12 : **`roborock/__init__.py` ne réexporte pas `roborock.devices.*`**
-  (seulement `data`, `exceptions`, `roborock_typing`) — un symbole de trait importé depuis la racine
+  ⚠️ Corollaire général vérifié en UC12 et **généralisé en UC13** : **`roborock/__init__.py` ne réexporte
+  que `data`, `exceptions` et `roborock_typing`** — **tout le reste s'importe par chemin complet**, y
+  compris un module de **premier niveau** comme `roborock.device_features` (ne pas se fier à la profondeur
+  du chemin pour deviner). Un symbole importé depuis la racine
   lève un `ImportError` **au chargement du module**, et le démon ne démarre plus du tout. Bilan :
   **un module par domaine fonctionnel**, enregistré explicitement depuis
   `jeeroborockd.py` — pas par effet de bord d'import. L'instance `RoborockApiClient` vit dans
@@ -464,6 +466,18 @@ traduction : la clé EST le texte français). Langues cibles usuelles : **`en_US
     ne pas réintroduire de JS, de widget ni de double-commande pour ça. ⚠️ Ce n'est **pas** une
     frontière d'autorisation — un scénario, l'API JSON-RPC ou un appel direct à `execCmd()` la
     contournent. Le % est calculé **dans le démon** (contrat tiers épinglé, cf. `consommables.py`).
+    **UC13 livrée** : 6 commandes info d'état de la station d'accueil (vidage, lavage, séchage, erreur
+    station + code, manque d'eau), en **lecture seule** et créées **conditionnellement**. ⚠️ Elle
+    n'a créé **aucun module** — les champs de station vivent dans `StatusV2`, donc dans le trait `status`
+    déjà rafraîchi : UC13 étend `robots.capacites_etat()`/`valeurs_etat()` (les deux seules fonctions
+    partagées par les trois chemins de publication) et `libelles.py`, sans opération RPC, sans appel
+    réseau et **sans quota**. ⚠️ Son critère de détection **diverge délibérément d'UC12** : la capacité
+    d'une station se lit dans `RoborockDockFeatures`, **jamais** dans « valeur non nulle » (qui y serait
+    un faux négatif) ni via `is_field_supported()` (ces champs n'ont aucune métadonnée) — cf.
+    `jeeroborock-mqtt-protocole.md` § 4.ter. ⚠️ Et ses 6 clés sont **toujours** présentes dans le payload
+    dès que la capacité est vraie, valeur normale comprise (**D-13-6**) : c'est une divergence assumée
+    avec la règle « clé absente quand la source est `None` » d'UC07, sans laquelle `merge_trait_values()`
+    figerait les commandes sur le dernier incident. Ne pas la « corriger ».
   - **`post-mvp/20-carte-et-pieces/`** (16→19) — pièces/segments, cartes multiples, image, vue carte.
     Domaine le plus coûteux techniquement.
   - **`post-mvp/30-pilotage-fin/`** (20→25) — aspiration, eau, itinéraire/mode, entretien, **nettoyage par

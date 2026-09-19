@@ -82,6 +82,12 @@
         "Réinitialiser le filtre": "Reset the filter",
         "Réinitialiser les capteurs": "Reset the sensors",
         "Réinitialiser le rouleau de serpillière": "Reset the mop roller",
+        "État vidage poussière": "Dust collection status",
+        "État lavage serpillière": "Mop washing status",
+        "État séchage serpillière": "Mop drying status",
+        "Erreur station": "Dock error",
+        "Code d'erreur station": "Dock error code",
+        "Manque d'eau": "Water shortage",
         "Compteur d'usure de « %s » réinitialisé.": "Wear counter for \"%s\" reset."
     },
     "plugins/jeeroborock/core/class/jeeroborockDaemon.class.php": {

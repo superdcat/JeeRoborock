@@ -180,6 +180,53 @@ Deux autres pièges de ces enums :
   `mopping_roller_2 = (45, "mopping_roller_1")`) ⇒ **indexer toute table de libellés sur `display_name`,
   jamais sur `.name`**.
 
+### ⚠️ 4.ter Capacités de la STATION : `RoborockDockFeatures`, et pourquoi « valeur non nulle » y est faux (vérifié 7.8.0, UC13)
+
+Pour savoir si une station sait vider / laver / sécher, **ne pas inférer depuis les champs de statut** :
+la librairie porte un modèle de capacités dédié, `RoborockDockFeatures` (`roborock/device_features.py`
+l.869-1003), qui se déclare comme miroir du modèle de l'application Roborock. Home Assistant l'utilise.
+
+```python
+from roborock.device_features import RoborockDockFeatures   # chemin COMPLET : PAS réexporté à la racine
+dock = RoborockDockFeatures.from_dock_type(status.dock_type, has_am=status.has_am)
+```
+
+`from_dock_type` est `@classmethod @cache` ⇒ **coût nul** à l'appel répété ; `dock_type=None` ⇒ `o0_dock`.
+Matrice **vérifiée par exécution** :
+
+| `dock_type` | `has_dock` | `is_collectable` | `is_washable` | `is_dryable` |
+|---|---|---|---|---|
+| `unknown` (-9999), `o0_dock` (0), `None` | False | False | False | False |
+| `o1_dock` (1), `oc_dock` (5) | True | True | False | False |
+| `o2_dock` (2) | True | False | True | False |
+| `o3_dock` (3) | True | True | True | False |
+| `o4_dock` (7), `hera_dock` (24), **tout autre code** | True | True | True | True |
+
+⚠️ **Le critère « champ non nul = capacité supportée » (valable pour les consommables, § 5) donnerait ici
+un FAUX NÉGATIF.** La capture réelle embarquée dans la librairie (`roborock/testing/v1_simulator.py`
+l.53-97) porte `wash_status = None` **et** `dry_status = None` sur un `o4_dock` qui lave et sèche
+indiscutablement. `is_field_supported()` ne sauve pas non plus : `dock_type`, `dust_collection_status`,
+`wash_status`, `wash_phase`, `wash_ready` **n'ont aucune métadonnée** et il y renvoie `True` en permanence.
+⇒ **Pour la station, la capacité se lit dans `RoborockDockFeatures`, jamais dans la valeur du champ.**
+
+⚠️ **`has_am` change 4 autres propriétés, pas celles du tableau.** `has_am` (propriété de `StatusV2`,
+`v1_containers.py` l.162-166, dérivée de `dss & 3 == 2`) n'influe que sur
+`is_clean_fluid_auto_delivery_supported`, `is_clean_carousel_self_clean_supported`,
+`is_water_updown_drain_supported` et `is_double_serial_communication_supported` — **132 combinaisons
+testées, 0 écart** sur le quadruplet ci-dessus. Le passer reste néanmoins obligatoire : **30 des 44 types
+de dock** ont au moins une propriété AM-sensible, et l'omettre piégerait toute UC qui lira ces 4-là.
+
+⚠️ **Les entiers de statut d'entretien ne sont PAS documentés.** `dust_collection_status`, `wash_status`,
+`wash_phase`, `wash_ready` sont des `int` nus, **sans enum, sans consommateur dans la librairie** (un
+`grep` sur tout le wheel ne les trouve qu'en déclaration et dans le simulateur), et Home Assistant ne les
+expose pas. Il n'existe **aucune source de vérité** pour leurs valeurs. UC13 s'en tire en faisant porter la
+branche décisive du libellé par `RoborockStateCode` (typé et documenté : `emptying_the_bin`,
+`washing_the_mop`, `air_drying_stopping`) et en ne laissant à l'entier que la nuance « terminé » —
+`StatusV2.dock_state` (l.218-251) fait le même choix et le recommande explicitement dans son docstring.
+Seuls `dry_status` et `water_shortage_status` ont une sémantique sourcée, par Home Assistant, et elle est
+**booléenne**. Détail et arbitrages :
+`.memory/specs/post-mvp/10-etats-detailles/13-station-et-entretien-tech.md`.
+
 ## 5. Consommables — `ConsumableTrait` (`get_consumable`)
 
 > **Révisé en UC12** (2026-09-19) — la rédaction précédente était inexacte sur trois points, tous

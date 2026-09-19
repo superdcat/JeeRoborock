@@ -14,7 +14,17 @@
 > Deux analyses **génériques Jeedom** (vérifiées contre la source du core) sont réutilisables par tout
 > plugin ; les analyses préfixées **`jeeroborock-`** sont **propres à ce plugin** (intégration Roborock).
 >
-> **Dernière mise à jour** : 2026-09-19 (UC12 : `jeeroborock-mqtt-protocole.md` **§ 5 corrigé** — la
+> **Dernière mise à jour** : 2026-09-19 (UC13 : `jeeroborock-mqtt-protocole.md` **§ 4.ter nouveau** — les
+> capacités de la **station** ne se déduisent ni de la valeur du champ (`wash_status`/`dry_status` sont
+> `None` sur une station qui lave et sèche : le critère « valeur non nulle » d'UC12 y serait un **faux
+> négatif**) ni d'`is_field_supported()` (ces champs n'ont aucune métadonnée) : elles se lisent dans
+> `RoborockDockFeatures`, matrice des 44 types de dock vérifiée par exécution. S'y ajoutent : le rôle réel
+> de `has_am` (4 autres propriétés, aucune du quadruplet vidage/lavage/séchage — mais 30 docks sur 44 en
+> dépendent, donc le passer quand même) ; et le fait que `dust_collection_status`/`wash_*` sont des
+> **entiers non documentés sans aucune source de vérité**, d'où une décision portée par `RoborockStateCode`.
+> La règle des imports est **généralisée** : `roborock.device_features` est un module de **premier niveau**
+> et n'est pas plus réexporté que `roborock.devices.*`.
+> Avant : UC12 : `jeeroborock-mqtt-protocole.md` **§ 5 corrigé** — la
 > rédaction précédente était inexacte sur trois points : les 9 champs de `Consumable` ne sont **pas**
 > tous « en secondes » (3 sont des compteurs d'occurrences), les durées de référence sont des constantes
 > **globales non indexées sur le `model`** (un écart avec l'app mobile n'est donc pas un bug de calcul),
@@ -98,7 +108,7 @@
 | **Masquer un secret dans un log** alors que la commande est passée à `escapeshellarg()` | `jeedom-dependances-et-demon.md` § 6 |
 | **Callback démon → Jeedom** (`core/php/jee<Id>.php`) : apikey, `401`, blocage par le `.htaccess` du template | `jeedom-dependances-et-demon.md` § 7 |
 | Démon Python qui **ne démarre pas** : lib `jeedom/jeedom.py` du template non importable ; log muet au niveau par défaut | `jeedom-dependances-et-demon.md` §§ 8-9 |
-| ⚠️ **`ImportError` au démarrage du démon après avoir importé un symbole de `python-roborock`** (`ConsumableAttribute`, classes de traits…) : `roborock/__init__.py` ne réexporte que `data`, `exceptions` et `roborock_typing` — **tout ce qui vit sous `roborock.devices.*` s'importe par son chemin complet** | `jeeroborock-mqtt-protocole.md` § 5 |
+| ⚠️ **`ImportError` au démarrage du démon après avoir importé un symbole de `python-roborock`** (`ConsumableAttribute`, classes de traits, `RoborockDockFeatures`…) : `roborock/__init__.py` ne réexporte que `data`, `exceptions` et `roborock_typing` — **tout le reste s'importe par chemin complet**, y compris un module de **premier niveau** comme `roborock.device_features` (ne pas se fier à la profondeur du chemin) | `jeeroborock-mqtt-protocole.md` §§ 5 et 4.ter |
 | **Consommables et usure** : quels champs sont en secondes (et lesquels sont des compteurs), durées de référence **non indexées sur le modèle**, `*_time_left` qui devient **négatif**, `ConsumableAttribute` incomplet (pas le rouleau), détection du supporté | `jeeroborock-mqtt-protocole.md` § 5 |
 | **Login Roborock** (code e-mail vs mot de passe), `UserData`/`rriot`, signature Hawk, serveur régional | `jeeroborock-cloud-api.md` §§ 1-3 |
 | ⚠️ **Pièges du limiteur de login** : `code_login_v4` ne consomme **aucun** jeton, compteur **par processus**, une demande peut coûter **2** jetons, **aucun timeout par requête** dans la lib ; `__version__` absent | `jeeroborock-cloud-api.md` § 2.1 |
@@ -116,6 +126,8 @@
 | « Où lire le contrat ? » — fichiers de `python-roborock`, Home Assistant, ioBroker + points non confirmés | `jeeroborock-implementations-reference.md` |
 | ⚠️ **Un code d'état / d'erreur inconnu de la librairie est écrasé SILENCIEUSEMENT** : `RoborockStateCode` retombe sur `unknown` (0), et `RoborockErrorCode`, qui n'a **pas** de membre `unknown`, retombe sur son premier membre — `none` (0) — donc **une erreur inconnue se présente comme « aucune erreur »** | `jeeroborock-mqtt-protocole.md` § 4 |
 | ⚠️ **Une capacité de `StatusV2` est-elle supportée ?** `is_field_supported()` renvoie **`True` par défaut** pour un champ **sans métadonnée** (`clean_area`, `clean_time`) : un critère `valeur is not None OR is_field_supported(…)` vaut alors `True` en permanence — deux familles de champs, deux critères, à ne jamais unifier | `jeeroborock-modele-equipement.md` § 2.1 |
+| ⚠️ **La STATION sait-elle vider / laver / sécher ?** Ni la valeur du champ (`wash_status`/`dry_status` sont `None` sur une station qui lave et sèche — **faux négatif**), ni `is_field_supported()` (ces champs n'ont **aucune** métadonnée) : la capacité se lit **uniquement** dans `RoborockDockFeatures.from_dock_type(dock_type, has_am=…)`. Matrice des 44 types de dock, rôle réel de `has_am` | `jeeroborock-mqtt-protocole.md` § 4.ter |
+| ⚠️ **Que valent `dust_collection_status` / `wash_status` / `wash_phase` / `wash_ready` ?** Entiers nus **sans enum, sans consommateur, sans documentation** — aucune source de vérité n'existe ⇒ faire porter la décision par `RoborockStateCode` (typé) et ne laisser à l'entier qu'une nuance. Seuls `dry_status` et `water_shortage_status` ont une sémantique sourcée, **booléenne** | `jeeroborock-mqtt-protocole.md` § 4.ter |
 | ⚠️ **Un `.js` de plugin EST traduit** (via `getResource.php` → `translate::exec(…, true)`) : seuls `3rdparty` et `*.min.js` ne le sont pas. Ses littérales traduisibles s'écrivent en **apostrophes simples**, à l'inverse de `configuration.txt` | `jeedom-widgets-commandes.md` § i18n |
 
 > Si aucun fichier ne couvre le sujet : ce n'est pas (encore) analysé en interne → passer à la doc externe

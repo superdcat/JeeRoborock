@@ -162,11 +162,41 @@ ERREURS = {
     "audio_error": "Erreur audio",
 }
 
+# UC13 - display_name (RoborockDockErrorCode) -> libelle francais. "ok" (code 0) n'a
+# pas besoin d'entree : libelle_erreur_station() court-circuite ce cas avant toute
+# recherche. Regle de redaction imposee par AC4 : chaque libelle mentionne
+# EXPLICITEMENT la station (ex. "no_dustbin" station != "no_dustbin" robot dans ERREURS
+# ci-dessus - sans la mention, les deux produiraient le meme texte francais dans deux
+# tuiles differentes, l'ambiguite qu'AC4 interdit precisement).
+ERREURS_STATION = {
+    "no_dustbin_or_filter": "Bac à poussière ou filtre de la station absent",
+    "auto_empty_dock_fan_error": "Ventilateur de vidage automatique de la station en erreur",
+    "duct_blockage": "Conduit de vidage de la station obstrué",
+    "auto_empty_dock_voltage_error": "Alimentation de la station de vidage en erreur",
+    "water_empty": "Réservoir d'eau propre de la station vide",
+    "waste_water_tank_full": "Réservoir d'eau sale de la station plein",
+    "maintenance_brush_jammed": "Brosse d'entretien de la station bloquée",
+    "dirty_tank_latch_open": "Trappe du réservoir d'eau sale de la station ouverte",
+    "no_dustbin": "Bac à poussière de la station absent",
+    "cleaning_tank_full_or_blocked": "Réservoir de nettoyage de la station plein ou bloqué",
+}
+
+# UC13 - libelles composes (D-13-3b) : constantes partagees par libelle_vidage/lavage/
+# sechage.
+VIDAGE_EN_COURS = "En cours"
+VIDAGE_TERMINE = "Terminé"
+REPOS = "Au repos"
+LAVAGE_EN_COURS = "En cours"
+LAVAGE_TERMINE = "Terminé"
+SECHAGE_EN_COURS = "En cours"
+SECHAGE_ARRET = "Arrêt en cours"
+
 # Cles deja journalisees en "cle d'etat/erreur inconnue" : n'avertit qu'une fois par
 # cle (et par table) plutot qu'a chaque rafraichissement, sans quoi le log serait noye
 # des le premier robot dote d'un code non repertorie.
 _ETATS_INCONNUS_JOURNALISES = set()
 _ERREURS_INCONNUES_JOURNALISEES = set()
+_ERREURS_STATION_INCONNUES_JOURNALISEES = set()
 
 
 def _cle(valeur):
@@ -216,3 +246,83 @@ def est_en_nettoyage(etat):
     if etat is None:
         return False
     return _cle(etat) in ETATS_NETTOYAGE
+
+
+def _actif(valeur):
+    """UC13 - None-safe et type-safe : None -> False ; entier convertible != 0 -> True ;
+    non convertible -> False. JAMAIS un `if valeur:` nu (un "0" en chaine serait vrai) :
+    dust_collection_status/wash_status/wash_phase/wash_ready/dry_status sont des entiers
+    nus, sans enum, sans documentation (cf. spec technique UC13 § Contrats externes)."""
+    if valeur is None:
+        return False
+    try:
+        return int(valeur) != 0
+    except (TypeError, ValueError):
+        return False
+
+
+def _resoudre(valeur, table, journalises, contexte):
+    """UC13 - display_name -> table[...] ; sinon identifiant anglais avec les
+    underscores remplaces par des espaces, log info UNE fois par cle. Helper prive
+    INTRODUIT pour ce cycle : libelle_etat()/libelle_erreur() ne sont PAS reecrites
+    dessus (zero risque de regression sur une UC deja livree) - quasi-duplication de
+    ~12 lignes ASSUMEE, sans liste a tenir synchronisee entre les deux (cf. spec
+    technique UC13 § Signatures)."""
+    cle = _cle(valeur)
+    if cle in table:
+        return table[cle]
+    if cle not in journalises:
+        journalises.add(cle)
+        logging.info("%s : identifiant inconnu de la table de libelles : %s", contexte, cle)
+    return cle.replace("_", " ")
+
+
+def libelle_erreur_station(erreur):
+    """UC13/AC4. '' si erreur est None OU vaut 0 (RoborockDockErrorCode.ok) - jamais la
+    chaine "ok" que porte display_name. Sinon _resoudre(...) sur ERREURS_STATION, dont
+    chaque libelle mentionne explicitement la station."""
+    if erreur is None:
+        return ""
+    try:
+        if int(erreur) == 0:
+            return ""
+    except (TypeError, ValueError):
+        pass
+    return _resoudre(erreur, ERREURS_STATION, _ERREURS_STATION_INCONNUES_JOURNALISEES, "libelle_erreur_station")
+
+
+def libelle_vidage(etat, dust_collection_status):
+    """UC13/AC1. Cf. spec technique UC13 § D-13-3(b) : la branche "En cours" est
+    SOURCEE (dock_state, RoborockStateCode.emptying_the_bin) ; la branche "Terminé" est
+    une INFERENCE (dust_collection_status n'a ni enum, ni documentation, ni consommateur
+    dans la librairie) - la composition reste correcte pour "En cours"/"Au repos" meme
+    si l'inference est fausse."""
+    if etat is not None and _cle(etat) == "emptying_the_bin":
+        return VIDAGE_EN_COURS
+    if _actif(dust_collection_status):
+        return VIDAGE_TERMINE
+    return REPOS
+
+
+def libelle_lavage(etat, wash_status, wash_phase, wash_ready):
+    """UC13/AC2. "En cours" sourcee (washing_the_mop, codes 23/25 de RoborockStateCode)
+    ou inferee (wash_status/wash_phase actifs) ; "Terminé" inferee (wash_ready actif) -
+    cf. spec technique UC13 § D-13-3(b)."""
+    if etat is not None and _cle(etat) == "washing_the_mop":
+        return LAVAGE_EN_COURS
+    if _actif(wash_status) or _actif(wash_phase):
+        return LAVAGE_EN_COURS
+    if _actif(wash_ready):
+        return LAVAGE_TERMINE
+    return REPOS
+
+
+def libelle_sechage(etat, dry_status):
+    """UC13/AC2. "Arrêt en cours" sourcee (air_drying_stopping, code 202 de
+    RoborockStateCode) ; "En cours" sourcee (dry_status, cf. Home Assistant
+    binary_sensor device_class RUNNING) - cf. spec technique UC13 § D-13-3(b)."""
+    if etat is not None and _cle(etat) == "air_drying_stopping":
+        return SECHAGE_ARRET
+    if _actif(dry_status):
+        return SECHAGE_EN_COURS
+    return REPOS

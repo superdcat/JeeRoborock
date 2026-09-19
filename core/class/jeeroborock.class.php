@@ -96,9 +96,19 @@ class jeeroborock extends eqLogic {
 
   // Consommables et usure (UC12). Une seule table porte a la fois l'info et l'action
   // (impossible de creer un reset orphelin, cf. definitionsConsommables()).
-  const ORDRE_BASE_CONSOMMABLES       = 12;    // info 12-16 (plage reservee UC12-15)
+  // UC12 a consommé intégralement sa plage (info 12-16) : ce n'est PLUS une réserve
+  // UC12-15, cf. ORDRE_BASE_STATION ci-dessous (UC13 est repartie sur une base libre).
+  const ORDRE_BASE_CONSOMMABLES       = 12;    // info 12-16 (occupée en totalité par UC12)
   const ORDRE_BASE_RESET_CONSOMMABLES = 100;   // actions 100-104 (routines occupent 30-93)
   const PREFIXE_CMD_RESET_CONSO       = 'reset_';
+
+  // État de la station d'accueil (UC13). Plages réellement occupées à ce stade : info
+  // 0-11 (UC07), info 12-16 (UC12), actions 20-25 (UC08), actions routines 30-93
+  // (UC09), actions reset 100-104 (UC12) — 17-19 ne laissait que 3 places pour 6
+  // commandes, d'où une base franchement libre, avec de la marge pour UC14 (120) et
+  // UC15 (130). L'ordre n'affecte que l'affichage, n'est jamais réécrit sur une
+  // commande existante.
+  const ORDRE_BASE_STATION = 110;   // info 110-115
 
   // Attention : userData contient le jeton de session et les identifiants dérivés rriot.
   // Ne jamais définir preConfig_userData / postConfig_userData : une exception levée depuis
@@ -500,10 +510,17 @@ class jeeroborock extends eqLogic {
 
   /*     * ***********************Commandes d'état (UC07)*********************** */
 
-  // Table statique des 12 commandes d'information posées par rafraichirEtat().
+  // Table statique des 18 commandes d'information posées par rafraichirEtat().
   // Littérales __() DANS la table (jamais __($variable) au point d'usage, l'extraction
   // i18n est un scan statique). 'min'/'max' absents = pas de bornes (batterie et
   // avancement seulement).
+  //
+  // UC13 (état de la station d'accueil) ajoute les 6 dernières entrées (station_*).
+  // generic = '' sur les 6 : le cœur Jeedom n'expose aucun type générique pour un
+  // manque d'eau, un niveau de réservoir ou un défaut d'appareil ; les seuls types
+  // liés à l'eau (FLOOD, WATER_LEAK) décrivent la PRÉSENCE d'eau, l'inverse sémantique
+  // exact de « manque d'eau » — les poser ferait remonter le robot comme détecteur
+  // d'inondation auprès du cœur, de l'application mobile et des plugins agrégateurs.
   private static function definitionsCommandes() {
     return array(
       'etat'             => array('nom' => __('État', __FILE__), 'subType' => 'string', 'unite' => '', 'generic' => '', 'visible' => 1, 'historise' => 0, 'ordre' => 0),
@@ -518,6 +535,12 @@ class jeeroborock extends eqLogic {
       'en_ligne'         => array('nom' => __('En ligne', __FILE__), 'subType' => 'binary', 'unite' => '', 'generic' => '', 'visible' => 1, 'historise' => 0, 'ordre' => 9),
       'connecte'         => array('nom' => __('Connecté', __FILE__), 'subType' => 'binary', 'unite' => '', 'generic' => '', 'visible' => 1, 'historise' => 0, 'ordre' => 10),
       'derniere_maj'     => array('nom' => __('Dernière mise à jour', __FILE__), 'subType' => 'string', 'unite' => '', 'generic' => '', 'visible' => 1, 'historise' => 0, 'ordre' => 11),
+      'station_vidage'      => array('nom' => __('État vidage poussière', __FILE__), 'subType' => 'string', 'unite' => '', 'generic' => '', 'visible' => 1, 'historise' => 0, 'ordre' => self::ORDRE_BASE_STATION),
+      'station_lavage'      => array('nom' => __('État lavage serpillière', __FILE__), 'subType' => 'string', 'unite' => '', 'generic' => '', 'visible' => 1, 'historise' => 0, 'ordre' => self::ORDRE_BASE_STATION + 1),
+      'station_sechage'     => array('nom' => __('État séchage serpillière', __FILE__), 'subType' => 'string', 'unite' => '', 'generic' => '', 'visible' => 1, 'historise' => 0, 'ordre' => self::ORDRE_BASE_STATION + 2),
+      'station_erreur'      => array('nom' => __('Erreur station', __FILE__), 'subType' => 'string', 'unite' => '', 'generic' => '', 'visible' => 1, 'historise' => 0, 'ordre' => self::ORDRE_BASE_STATION + 3),
+      'station_erreur_code' => array('nom' => __('Code d\'erreur station', __FILE__), 'subType' => 'numeric', 'unite' => '', 'generic' => '', 'visible' => 0, 'historise' => 0, 'ordre' => self::ORDRE_BASE_STATION + 4),
+      'station_manque_eau'  => array('nom' => __('Manque d\'eau', __FILE__), 'subType' => 'binary', 'unite' => '', 'generic' => '', 'visible' => 1, 'historise' => 0, 'ordre' => self::ORDRE_BASE_STATION + 5),
     );
   }
 
@@ -1474,6 +1497,13 @@ class jeeroborock extends eqLogic {
       'surfaceNettoyee' => array('surface_nettoyee'),
       'dureeNettoyage' => array('duree_nettoyage'),
       'avancement'     => array('avancement'),
+      // UC13 - même patron qu'« erreur » ci-dessus : une capacité peut porter plusieurs
+      // commandes (le code brut ET le libellé lisible partagent la même donnée source).
+      'stationVidage'    => array('station_vidage'),
+      'stationLavage'    => array('station_lavage'),
+      'stationSechage'   => array('station_sechage'),
+      'stationErreur'    => array('station_erreur', 'station_erreur_code'),
+      'stationManqueEau' => array('station_manque_eau'),
     );
     $definitions = self::definitionsCommandes();
     $creees = 0;
@@ -1518,7 +1548,7 @@ class jeeroborock extends eqLogic {
     return $creees;
   }
 
-  // Écrit les valeurs reçues du démon. Liste blanche FERMÉE de 9 clés, aucune boucle
+  // Écrit les valeurs reçues du démon. Liste blanche FERMÉE de 15 clés, aucune boucle
   // générique sur $_etat (AC4 : une clé absente laisse la commande à sa valeur
   // précédente, jamais un défaut).
   private function appliquerValeurs($_etat) {
@@ -1564,6 +1594,33 @@ class jeeroborock extends eqLogic {
       if ($valeur >= 0 && $valeur <= 100) {
         $this->checkAndUpdateCmd('avancement', $valeur);
       }
+    }
+
+    // UC13/D-13-6 - DIVERGENCE ASSUMÉE avec la règle « clé absente quand la source est
+    // None » appliquée ci-dessus : merge_trait_values() (côté démon) peut effacer
+    // dock_error_status d'une réponse à l'autre, et AC5 exige que l'état normal soit
+    // ÉCRIT, pas seulement non contredit — sous la règle ci-dessus, ces 6 commandes
+    // resteraient figées sur le dernier incident, silencieusement. Le démon garantit
+    // donc que chacune de ces clés est TOUJOURS présente dès que la capacité de station
+    // correspondante est vraie, avec la valeur normale quand la source est None (« Au
+    // repos », 0, '', false). Cf. spec technique UC13 § D-13-6.
+    if (isset($_etat['stationVidage'])) {
+      $this->checkAndUpdateCmd('station_vidage', self::texteInventaire((string) $_etat['stationVidage'], self::LONGUEUR_MAX_LIBELLE_ETAT));
+    }
+    if (isset($_etat['stationLavage'])) {
+      $this->checkAndUpdateCmd('station_lavage', self::texteInventaire((string) $_etat['stationLavage'], self::LONGUEUR_MAX_LIBELLE_ETAT));
+    }
+    if (isset($_etat['stationSechage'])) {
+      $this->checkAndUpdateCmd('station_sechage', self::texteInventaire((string) $_etat['stationSechage'], self::LONGUEUR_MAX_LIBELLE_ETAT));
+    }
+    if (isset($_etat['stationErreurLibelle'])) {
+      $this->checkAndUpdateCmd('station_erreur', self::texteInventaire((string) $_etat['stationErreurLibelle'], self::LONGUEUR_MAX_LIBELLE_ETAT));
+    }
+    if (isset($_etat['stationErreurCode']) && is_numeric($_etat['stationErreurCode']) && intval($_etat['stationErreurCode']) >= 0) {
+      $this->checkAndUpdateCmd('station_erreur_code', intval($_etat['stationErreurCode']));
+    }
+    if (isset($_etat['stationManqueEau'])) {
+      $this->checkAndUpdateCmd('station_manque_eau', !empty($_etat['stationManqueEau']) ? 1 : 0);
     }
   }
 

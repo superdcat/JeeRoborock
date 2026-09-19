@@ -82,6 +82,12 @@
         "Réinitialiser le filtre": "Reiniciar el filtro",
         "Réinitialiser les capteurs": "Reiniciar los sensores",
         "Réinitialiser le rouleau de serpillière": "Reiniciar el rodillo de fregado",
+        "État vidage poussière": "Estado de vaciado de polvo",
+        "État lavage serpillière": "Estado de lavado de la mopa",
+        "État séchage serpillière": "Estado de secado de la mopa",
+        "Erreur station": "Error de la base",
+        "Code d'erreur station": "Código de error de la base",
+        "Manque d'eau": "Falta de agua",
         "Compteur d'usure de « %s » réinitialisé.": "Contador de desgaste de «%s» reiniciado."
     },
     "plugins/jeeroborock/core/class/jeeroborockDaemon.class.php": {
