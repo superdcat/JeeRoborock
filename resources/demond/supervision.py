@@ -56,7 +56,8 @@ DELAI_AMORCAGE_S = 20           # avant la 1re construction du gestionnaire (gar
 DELAIS_REPRISE_S = (60, 300, 900, 1800)
 CADENCE_NETTOYAGE_S = 30
 CADENCE_REPOS_S = 60
-CADENCE_ECHEC_S = 120
+CADENCES_ECHEC_S = (120, 300, 600)     # UC11/AC3 : escalade, un robot eteint est nominal
+CADENCE_ERREUR_INTERNE_S = 120         # ex-CADENCE_ECHEC_S, chemin d'erreur interne inchange
 SEUIL_ECHECS = 3
 FENETRE_COALESCENCE_S = 1.0
 DELAI_SONDAGE_S = 12
@@ -175,6 +176,7 @@ async def _superviser(contexte):
             code, _nom = code_pour_exception(erreur)
             if code in CODES_ARRET:
                 logging.warning("supervision._superviser : arret sans relance (%s)", code)
+                _publier_compte(contexte, code)
                 return
             logging.error(
                 "supervision._superviser : echec de construction/reconciliation (%s, %s), nouvelle tentative dans %s s",
@@ -275,9 +277,13 @@ async def _sonde(contexte, appareil, evenement):
     while True:
         try:
             status = appareil.v1_properties.status
-            cadence = CADENCE_ECHEC_S if echecs_consecutifs >= SEUIL_ECHECS else (
-                CADENCE_NETTOYAGE_S if _en_nettoyage(status) else CADENCE_REPOS_S
-            )
+            if echecs_consecutifs >= SEUIL_ECHECS:
+                # UC11/AC3 : escalade indexee sur le nombre d'echecs au-dela du seuil,
+                # remise a zero au premier succes (comportement existant conserve).
+                rang = min(echecs_consecutifs - SEUIL_ECHECS, len(CADENCES_ECHEC_S) - 1)
+                cadence = CADENCES_ECHEC_S[rang]
+            else:
+                cadence = CADENCE_NETTOYAGE_S if _en_nettoyage(status) else CADENCE_REPOS_S
 
             try:
                 await asyncio.wait_for(evenement.wait(), cadence)
@@ -317,7 +323,7 @@ async def _sonde(contexte, appareil, evenement):
                 code, type(erreur).__name__,
             )
             try:
-                await asyncio.sleep(CADENCE_ECHEC_S)
+                await asyncio.sleep(CADENCE_ERREUR_INTERNE_S)
             except Exception:
                 return
 
@@ -340,6 +346,21 @@ def _lot(appareil, etat_lu, motif, avec_capacites, avec_en_ligne):
             features = appareil.v1_properties.device_features
             lot["capacites"] = robots.capacites_etat(status, features)
     return lot
+
+
+def _publier_compte(contexte, code):
+    """Ne leve jamais (UC11, AC1). Cle de premier niveau 'compte', SANS deux-points
+    (contrainte de jedom_com.add_changes, cf. R8 d'UC10) : un motif ':' ferait
+    reinterpreter la cle comme un chemin imbrique."""
+    try:
+        com = contexte.get("com")
+        if com is None:
+            return
+        com.add_changes("compte", {"reauthRequise": True, "motif": code})
+    except Exception as erreur:
+        # exc_info conserve ici : ne manipule qu'un dict local et l'appel jedom_com,
+        # pas une exception venue de la librairie ou du canal RPC.
+        logging.error("supervision._publier_compte en erreur : %s", erreur, exc_info=True)
 
 
 def _publier(contexte, duid, lot):

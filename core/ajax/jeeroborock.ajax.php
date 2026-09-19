@@ -159,6 +159,10 @@ try {
         $message .= ' ' . sprintf(__('Serveur du compte : %s', __FILE__), parse_url($baseUrl, PHP_URL_HOST));
       }
 
+      // UC11/AC2 : second chemin de guérison (faux positif) - le test de connexion vient
+      // de prouver la session valide (coût quota nul), le drapeau n'a plus lieu d'être.
+      jeeroborock::effacerReauthRequise();
+
       ajax::success(array(
         'etat'        => 'authentifie',
         'message'     => $message,

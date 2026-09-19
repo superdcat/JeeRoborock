@@ -97,6 +97,29 @@ Autres points :
   `deamon_info()` **en statique direct** (typiquement depuis `deamon_start()`), ce complément ne
   s'applique pas → **poser explicitement les 4 clés** `log` / `state` / `launchable` /
   `launchable_message`.
+- ⚠️⚠️ **Corollaire non évident du point précédent, et fatal : `deamon_start()` appelle
+  `deamon_info()`, donc tout état écrit par `deamon_start()` avant ce contrôle est relu par le
+  contrôle lui-même.** Dès que `deamon_info()` fonde une décision sur un état que `deamon_start()`
+  écrit — cas typique : un **compteur d'échecs horodaté** pour espacer les relances (UC11/AC7) —
+  marquer à l'entrée de `deamon_start()` fait lire à `deamon_info()` un horodatage vieux de la durée
+  du seul `deamon_stop()` intercalé, soit ~1 s : le délai d'attente n'est jamais écoulé,
+  `launchable` passe à `nok`, et `deamon_start()` lève **avant d'atteindre l'`exec()`**. Le démon ne
+  démarre **jamais**, y compris au premier lancement d'une installation neuve où aucun échec n'a eu
+  lieu — et comme chaque tentative re-date le compteur avant de se re-vérifier, le blocage est
+  **permanent**, pas borné au délai.
+  → **Règle** : n'écrire un tel état qu'**après** le contrôle `launchable`, juste avant l'`exec()`.
+  `deamon_info()` ne voit alors que la tentative **précédente** — la seule grandeur qu'un backoff doive
+  mesurer — et une tentative *refusée* n'est pas comptée, donc le backoff ne s'auto-alimente pas quand
+  l'utilisateur insiste sur « Démarrer » pendant la fenêtre d'attente.
+  → **Corollaire de remise à zéro** : un tel compteur ne peut être effacé que par la branche « démon
+  vivant » de `deamon_info()`, atteinte par le cron du core — **jamais** par l'appel interne de
+  `deamon_start()`, qui suit toujours un `deamon_stop()` et voit donc un démon absent. La guérison
+  dépend donc du cron du core, pas du plugin seul.
+  → **Test de recette qui l'attrape, et que rien d'autre n'attrape** : un **démarrage à froid** (cache
+  purgé, démon arrêté, relance manuelle depuis la page de configuration) doit lancer le démon
+  *immédiatement*, sans message de délai. Le scénario « échecs répétés » ne le détecte pas : il
+  s'attend justement à un refus. Ni `php -l`, ni la CI, ni une review de la seule fonction modifiée ne
+  voient quoi que ce soit — c'est l'**interaction** entre les deux hooks qui est fautive.
 - `launchable_message` est **injecté en HTML** dans la modale démon → n'y mettre que des littérales
   traduites et des entiers (cf. § 5).
 - Le garde-fou **45 s** du core fait qu'un arrêt/relance rapproché depuis l'interface est **refusé** :

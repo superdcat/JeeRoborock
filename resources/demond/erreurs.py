@@ -68,6 +68,30 @@ class ErreurDemon(Exception):
         self.detail = detail
 
 
+def trace_sure(exc, limite=12):
+    """Construit une trace SANS AUCUN message d'exception (UC11, AC6). Contrairement a
+    logging.error(..., exc_info=True), qui imprime le texte de chaque exception de la
+    chaine de causes - texte qui peut porter un corps de reponse Roborock complet, donc
+    des local_key - cette fonction ne conserve que : fichier, ligne, fonction et texte
+    SOURCE de chaque frame (traceback.format_tb ne rend jamais une valeur de variable,
+    contrairement a une trace PHP qui imprime les arguments de frame), plus la chaine des
+    NOMS de classes d'exception (jamais str(exception)). Ne leve jamais."""
+    try:
+        import traceback
+
+        morceaux = []
+        courante = exc
+        vues = set()
+        while courante is not None and id(courante) not in vues:
+            vues.add(id(courante))
+            morceaux.append(type(courante).__name__)
+            morceaux.extend(traceback.format_tb(courante.__traceback__, limit=limite))
+            courante = courante.__cause__ or courante.__context__
+        return " -> ".join(morceaux)
+    except Exception as erreur:
+        return "trace_sure indisponible (%s)" % type(erreur).__name__
+
+
 def code_pour_exception(exc):
     """Parcourt type(exc).__mro__ et retourne (code_stable, nom_de_classe). Ne leve
     jamais : retombe sur CODE_DEFAUT si aucune classe du MRO n'est connue.

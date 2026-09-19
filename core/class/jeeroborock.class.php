@@ -72,6 +72,28 @@ class jeeroborock extends eqLogic {
   const DUREE_CACHE_RELANCE_SUPERVISION = 1800;  // s, TTL de l'horodatage
   const CLE_CACHE_RELANCE_SUPERVISION   = 'jeeroborock::relanceSupervision';
 
+  // Robustesse, quotas et ré-authentification (UC11). L'état absorbant vit en
+  // configuration plugin (survit au redémarrage du démon, n'expire pas tout seul, cf.
+  // reauthRequise()). Le reste (sonde de compte, backoff de relance du démon) vit en
+  // cache : ce sont des compteurs d'incident, qui doivent pouvoir s'oublier tout seuls.
+  const CLE_CONFIG_REAUTH = 'reauthRequise';
+
+  // Sonde de session sans quota (etatCompte, avecInventaire=false), déclenchée depuis
+  // cron() seulement quand tous les équipements actifs sont périmés. Escalade à chaque
+  // sonde non concluante, remise à zéro au premier succès.
+  const DELAIS_SONDE_COMPTE_S      = array(900, 1800, 3600, 7200, 21600);
+  const DUREE_CACHE_SONDE_COMPTE   = 604800; // s, 7 jours
+  const CLE_CACHE_SONDE_COMPTE     = 'jeeroborock::sondeCompte';
+
+  // Backoff du redémarrage du démon (AC7). Un démon qui ne survit pas
+  // DUREE_VIE_MIN_DEMON_S n'est pas considéré comme "démarré" : le compteur d'échecs
+  // n'est remis à zéro que par l'observation d'un démon sain, jamais par le seul
+  // écoulement du temps.
+  const DUREE_VIE_MIN_DEMON_S        = 120;  // s
+  const DELAIS_RELANCE_DEMON_S       = array(60, 300, 900, 1800); // s
+  const CLE_CACHE_DEMARRAGE_DEMON    = 'jeeroborock::demarrageDemon';
+  const DUREE_CACHE_DEMARRAGE_DEMON  = 86400; // s
+
   // Attention : userData contient le jeton de session et les identifiants dérivés rriot.
   // Ne jamais définir preConfig_userData / postConfig_userData : une exception levée depuis
   // une frame qui reçoit ce paramètre exposerait le secret via displayException() (trace complète
@@ -142,6 +164,175 @@ class jeeroborock extends eqLogic {
     return $valeur;
   }
 
+  /*     * ***********************État absorbant "ré-authentification" (UC11)****** */
+
+  // Source de vérité de l'état absorbant "ré-authentification requise" (AC1/AC2). En
+  // configuration plugin, PAS en cache : il ne doit pas expirer tout seul (un TTL qui
+  // expire relancerait les tentatives), et il doit survivre au redémarrage du démon
+  // (déclenché chaque minute par plugin::checkDeamon, ce qui viderait un contexte['...']).
+  // Comparaison stricte à '1' : neutralise la divergence byKey/byKeys sur la chaîne vide.
+  // NE LÈVE JAMAIS.
+  public static function reauthRequise() {
+    return trim((string) config::byKey(self::CLE_CONFIG_REAUTH, 'jeeroborock', '')) === '1';
+  }
+
+  // Lève le drapeau (AC1). Idempotente (sort si déjà levé) et non ré-entrante (un appel
+  // en cours n'en déclenche pas un second, notamment depuis le callback du démon).
+  // NE LÈVE JAMAIS.
+  public static function signalerReauthRequise($_origine) {
+    static $enCours = false;
+    if ($enCours) {
+      return;
+    }
+    $enCours = true;
+    try {
+      if (self::reauthRequise()) {
+        return;
+      }
+      $origine = preg_match('/\A[A-Z_]{1,16}\z/', (string) $_origine) === 1 ? $_origine : 'INCONNUE';
+
+      try {
+        config::save(self::CLE_CONFIG_REAUTH, '1', 'jeeroborock');
+      } catch (Throwable $e) {
+        log::add('jeeroborock', 'error', 'signalerReauthRequise : échec de persistance : ' . $e->getMessage());
+      }
+
+      log::add('jeeroborock', 'warning', 'Ré-authentification requise (origine : ' . $origine . ')');
+
+      message::removeAll('jeeroborock', 'reauth');
+      message::add(
+        'jeeroborock',
+        __('Le compte Roborock doit être ré-authentifié : la session a expiré ou a été révoquée. Ouvrez la configuration du plugin et demandez un nouveau code de connexion.', __FILE__)
+          . ' ' . __('Si vous pensez qu\'il s\'agit d\'une erreur, le bouton "Tester la connexion" revérifie la session sans consommer de quota.', __FILE__),
+        '',
+        'reauth'
+      );
+
+      try {
+        // Rend le démon quiescent (session vide) : aucune opération nouvelle, réutilise
+        // le contrat déjà en place (restaurerSession avec userData='').
+        jeeroborockDaemon::appeler('restaurerSession', array('userData' => '', 'baseUrl' => '', 'email' => ''), jeeroborockDaemon::TIMEOUT_SESSION);
+      } catch (Throwable $e) {
+        log::add('jeeroborock', 'warning', 'signalerReauthRequise : le démon n\'a pas pu être notifié : ' . $e->getMessage());
+      }
+    } catch (Throwable $e) {
+      log::add('jeeroborock', 'error', 'signalerReauthRequise en erreur : ' . $e->getMessage());
+    } finally {
+      $enCours = false;
+    }
+  }
+
+  // Efface le drapeau (AC2, guérison via UC04 ou "Tester la connexion"). NE LÈVE JAMAIS.
+  public static function effacerReauthRequise() {
+    try {
+      // Valeur vide = valeur par défaut -> supprime la ligne en base (évite tout écart
+      // de comparaison lâche entre 0 et chaîne vide selon la version de PHP).
+      config::save(self::CLE_CONFIG_REAUTH, '', 'jeeroborock');
+    } catch (Throwable $e) {
+      log::add('jeeroborock', 'error', 'effacerReauthRequise : échec de persistance : ' . $e->getMessage());
+    }
+    message::removeAll('jeeroborock', 'reauth');
+    self::oublierSondeCompte();
+  }
+
+  // Point d'entrée du lot 'compte' poussé par le superviseur du démon (callback
+  // jeedom_com). NE LÈVE JAMAIS (appelée depuis un point d'entrée externe).
+  public static function traiterEtatCompte($_donnees) {
+    try {
+      if (!is_array($_donnees) || empty($_donnees['reauthRequise'])) {
+        return;
+      }
+      if (!self::estCompteLie()) {
+        return;
+      }
+      // Le motif transmis par le démon (ex. 'AUTH_EXPIRED') n'est utilisé QUE pour le
+      // log de diagnostic, jamais comme origine passée à signalerReauthRequise() (valeur
+      // fixe 'DEMON' - le motif n'est pas une des origines attendues de cette méthode).
+      $motif = isset($_donnees['motif']) ? (string) $_donnees['motif'] : '';
+      if (preg_match('/\A[A-Z_]{1,32}\z/', $motif) !== 1) {
+        $motif = '';
+      }
+      if ($motif != '') {
+        log::add('jeeroborock', 'debug', 'traiterEtatCompte : motif transmis par le démon : ' . $motif);
+      }
+      self::signalerReauthRequise('DEMON');
+    } catch (Throwable $e) {
+      log::add('jeeroborock', 'error', 'traiterEtatCompte en erreur : ' . $e->getMessage());
+    }
+  }
+
+  // Lit le compteur de la sonde de compte (rang d'escalade + horodatage du dernier
+  // essai). Retombe sur un compteur neutre si absent ou non conforme. NE LÈVE JAMAIS.
+  private static function sondeCompteEtat() {
+    try {
+      $valeur = cache::byKey(self::CLE_CACHE_SONDE_COMPTE)->getValue('');
+      if (is_array($valeur) && isset($valeur['rang'], $valeur['horodatage'])) {
+        return array('rang' => intval($valeur['rang']), 'horodatage' => intval($valeur['horodatage']));
+      }
+    } catch (Throwable $e) {
+      log::add('jeeroborock', 'warning', 'sondeCompteEtat : échec de lecture du cache : ' . $e->getMessage());
+    }
+    return array('rang' => 0, 'horodatage' => 0);
+  }
+
+  // Oublie la progression de la sonde de compte (guérison, AC2). NE LÈVE JAMAIS.
+  private static function oublierSondeCompte() {
+    try {
+      cache::delete(self::CLE_CACHE_SONDE_COMPTE);
+    } catch (Throwable $e) {
+      log::add('jeeroborock', 'warning', 'oublierSondeCompte : échec de purge : ' . $e->getMessage());
+    }
+  }
+
+  // Vrai si le délai d'escalade courant de la sonde de compte est écoulé (ou si aucune
+  // sonde n'a encore été tentée). NE LÈVE JAMAIS.
+  private static function sondeCompteAFaire() {
+    $etat = self::sondeCompteEtat();
+    if ($etat['horodatage'] == 0) {
+      return true;
+    }
+    $rang = min($etat['rang'], count(self::DELAIS_SONDE_COMPTE_S) - 1);
+    return (time() - $etat['horodatage']) >= self::DELAIS_SONDE_COMPTE_S[$rang];
+  }
+
+  // Effectue la sonde de session sans quota (etatCompte, avecInventaire=false forcé) et
+  // fait progresser l'escalade sur tout verdict non concluant. Retourne 'OK',
+  // 'AUTH_EXPIRED' ou 'INDISPONIBLE'. NE LÈVE JAMAIS.
+  private static function sonderCompte() {
+    try {
+      jeeroborockDaemon::appeler(
+        'etatCompte',
+        array('userData' => self::getUserData(), 'baseUrl' => self::getBaseUrlCompte(), 'email' => self::getEmailCompte(), 'avecInventaire' => false),
+        jeeroborockDaemon::TIMEOUT_COMPTE
+      );
+      self::oublierSondeCompte();
+      return 'OK';
+    } catch (jeeroborockException $e) {
+      if ($e->getCodeErreur() === 'AUTH_EXPIRED') {
+        // Le drapeau est déjà levé par l'entonnoir de jeeroborockDaemon::appeler().
+        self::avancerSondeCompte();
+        return 'AUTH_EXPIRED';
+      }
+      log::add('jeeroborock', 'info', 'sonderCompte : verdict indisponible (' . $e->getCodeErreur() . ')');
+      self::avancerSondeCompte();
+      return 'INDISPONIBLE';
+    } catch (Throwable $e) {
+      log::add('jeeroborock', 'warning', 'sonderCompte : échec inattendu : ' . $e->getMessage());
+      self::avancerSondeCompte();
+      return 'INDISPONIBLE';
+    }
+  }
+
+  // Fait progresser le rang d'escalade de la sonde de compte. NE LÈVE JAMAIS.
+  private static function avancerSondeCompte() {
+    try {
+      $etat = self::sondeCompteEtat();
+      cache::set(self::CLE_CACHE_SONDE_COMPTE, array('rang' => $etat['rang'] + 1, 'horodatage' => time()), self::DUREE_CACHE_SONDE_COMPTE);
+    } catch (Throwable $e) {
+      log::add('jeeroborock', 'warning', 'avancerSondeCompte : échec de mise en cache : ' . $e->getMessage());
+    }
+  }
+
   /*     * ***********************Cache de l'inventaire du compte (UC05)********** */
 
   // Lit le cache PHP de l'inventaire (D-05-1). Retourne null si absent, expiré ou non
@@ -188,6 +379,9 @@ class jeeroborock extends eqLogic {
   // idempotents. Aucune retentative sur un refus de quota (D-06-4) : jeeroborockException
   // remonte telle quelle à l'appelant (AJAX).
   public static function synchroniserEquipements() {
+    if (self::reauthRequise()) {
+      throw jeeroborockDaemon::erreurLocale('AUTH_EXPIRED');
+    }
     $r = jeeroborockDaemon::appeler(
       'decouvrirEquipements',
       array('userData' => self::getUserData(), 'baseUrl' => self::getBaseUrlCompte(), 'email' => self::getEmailCompte()),
@@ -344,8 +538,11 @@ class jeeroborock extends eqLogic {
 
     try {
       // baseUrl d'abord, userData ensuite : "compte lié" (estCompteLie()) ne devient vrai
-      // qu'au tout dernier enregistrement.
+      // qu'au tout dernier enregistrement. Effacement du drapeau AVANT ce dernier
+      // enregistrement, dans le même try (UC11, AC2) : rend structurellement impossible
+      // "nouvelle session persistée sans drapeau effacé".
       config::save('baseUrl', $baseUrl, 'jeeroborock');
+      self::effacerReauthRequise();
       config::save('userData', $userData, 'jeeroborock');
       self::oublierInventaireCompte();
       // Arme le suivi temps réel (UC10) : le verrou de session est déjà relâché par
@@ -374,6 +571,9 @@ class jeeroborock extends eqLogic {
       log::add('jeeroborock', 'error', 'oublierSession : échec de persistance : ' . $e->getMessage());
     }
     self::oublierInventaireCompte();
+    // Le compte change : un drapeau "ré-authentification requise" hérité de l'ancien
+    // compte n'a plus de sens (UC11).
+    self::effacerReauthRequise();
 
     log::add('jeeroborock', 'info', 'Compte Roborock délié (e-mail modifié)');
     message::removeAll('jeeroborock', 'session_deliee');
@@ -401,6 +601,12 @@ class jeeroborock extends eqLogic {
   // NE LEVE JAMAIS.
   private static function restaurerSessionDemon() {
     if (!self::estCompteLie()) {
+      return;
+    }
+    // UC11/AC1 : point de passage UNIQUE de tous les réarmements (deamon_start(), cron(),
+    // enregistrerSession()) - tant que le drapeau est levé, on ne relance jamais le
+    // superviseur (ce qui reconstruirait un DeviceManager et consommerait un homedata).
+    if (self::reauthRequise()) {
       return;
     }
     try {
@@ -485,14 +691,43 @@ class jeeroborock extends eqLogic {
       if (self::pidDemonActif() > 0) {
         $retour['state'] = 'ok';
         $retour['launchable'] = 'ok';
+        // UC11/AC7 : le compteur d'échecs de démarrage n'est remis à zéro QUE par
+        // l'observation d'un démon sain ayant survécu DUREE_VIE_MIN_DEMON_S - jamais par
+        // le seul écoulement du temps.
+        $compteur = self::compteurDemarrages();
+        if ($compteur['echecs'] > 0 && (time() - $compteur['horodatage']) >= self::DUREE_VIE_MIN_DEMON_S) {
+          self::oublierDemarragesDemon();
+        }
         return $retour;
       }
+
       $cause = self::causeNonLancable();
-      if ($cause == '') {
-        $retour['launchable'] = 'ok';
-      } else {
+      if ($cause != '') {
         $retour['launchable_message'] = $cause;
+        return $retour;
       }
+
+      // UC11/AC7 : backoff de relance - consulté seulement quand causeNonLancable() ne
+      // bloque déjà pas (elle reste prioritaire). Un démon durablement cassé n'est donc
+      // pas relancé en boucle serrée par plugin::checkDeamon().
+      $compteur = self::compteurDemarrages();
+      if ($compteur['echecs'] > 0) {
+        $rang = min($compteur['echecs'] - 1, count(self::DELAIS_RELANCE_DEMON_S) - 1);
+        $delaiAttendu = self::DELAIS_RELANCE_DEMON_S[$rang];
+        $ecoule = time() - $compteur['horodatage'];
+        if ($ecoule < $delaiAttendu) {
+          // launchable_message est injecté en HTML brut par le core : littérale +
+          // entiers uniquement (intval()), jamais une valeur externe.
+          $retour['launchable_message'] = sprintf(
+            __('Démarrage du démon différé après %s échec(s) rapproché(s) : nouvelle tentative dans %s seconde(s).', __FILE__),
+            intval($compteur['echecs']),
+            intval($delaiAttendu - $ecoule)
+          );
+          return $retour;
+        }
+      }
+
+      $retour['launchable'] = 'ok';
       return $retour;
     } catch (Throwable $e) {
       log::add('jeeroborock', 'error', 'deamon_info en erreur : ' . $e->getMessage());
@@ -515,6 +750,20 @@ class jeeroborock extends eqLogic {
     if ($infos['launchable'] != 'ok') {
       throw new Exception(sprintf(__('Le démon ne peut pas être démarré : %s', __FILE__), $infos['launchable_message']));
     }
+
+    // UC11/AC7 : marqué ICI, APRÈS le contrôle de launchabilité et JUSTE AVANT l'exec(),
+    // JAMAIS à l'entrée de la fonction. deamon_info() ci-dessus relit ce même compteur
+    // pour mesurer le temps écoulé depuis LA TENTATIVE PRÉCÉDENTE : le marquer avant de
+    // s'auto-consulter ferait lire à deamon_info() un horodatage vieux d'à peine 1 s
+    // (seul deamon_stop() s'est intercalé), donc systématiquement sous
+    // DELAIS_RELANCE_DEMON_S[0] - deamon_start() s'auto-verrouillerait alors à chaque
+    // tentative, y compris la toute première sur une installation neuve (aucun échec
+    // réel n'a pourtant eu lieu). En marquant seulement APRÈS ce contrôle, deamon_info()
+    // ne voit jamais que le résultat de la tentative précédente : compteur vide au
+    // premier démarrage (pas de backoff, lancement immédiat) ; démon qui meurt avant
+    // DUREE_VIE_MIN_DEMON_S -> la minute suivante, deamon_info() voit un échec récent et
+    // répond launchable='nok' AVANT même que deamon_start() ne soit rappelée par le core.
+    self::marquerDemarrageDemon();
 
     $port = self::getPortDemonHttp();
     $apikey = jeedom::getApiKey('jeeroborock');
@@ -576,6 +825,43 @@ class jeeroborock extends eqLogic {
       sleep(1);
     } catch (Throwable $e) {
       log::add('jeeroborock', 'error', 'deamon_stop en erreur : ' . $e->getMessage());
+    }
+  }
+
+  // Lit le compteur de démarrages du démon (UC11, AC7). Même squelette que
+  // relanceSupervisionRecente() (UC10), mais la valeur stockée diffère : un tableau
+  // array('echecs', 'horodatage') ici, un horodatage scalaire là-bas - la forme est donc
+  // validée avant usage. Retombe sur un compteur neutre si absent ou non conforme.
+  // NE LÈVE JAMAIS.
+  private static function compteurDemarrages() {
+    try {
+      $valeur = cache::byKey(self::CLE_CACHE_DEMARRAGE_DEMON)->getValue('');
+      if (is_array($valeur) && isset($valeur['echecs'], $valeur['horodatage'])) {
+        return array('echecs' => intval($valeur['echecs']), 'horodatage' => intval($valeur['horodatage']));
+      }
+    } catch (Throwable $e) {
+      log::add('jeeroborock', 'warning', 'compteurDemarrages : échec de lecture du cache : ' . $e->getMessage());
+    }
+    return array('echecs' => 0, 'horodatage' => 0);
+  }
+
+  // Incrémente le compteur de démarrages et horodate. Cache et non configuration : un
+  // compteur d'incident doit pouvoir s'oublier tout seul (TTL). NE LÈVE JAMAIS.
+  private static function marquerDemarrageDemon() {
+    try {
+      $compteur = self::compteurDemarrages();
+      cache::set(self::CLE_CACHE_DEMARRAGE_DEMON, array('echecs' => $compteur['echecs'] + 1, 'horodatage' => time()), self::DUREE_CACHE_DEMARRAGE_DEMON);
+    } catch (Throwable $e) {
+      log::add('jeeroborock', 'warning', 'marquerDemarrageDemon : échec de mise en cache : ' . $e->getMessage());
+    }
+  }
+
+  // Oublie le compteur de démarrages (démon observé sain, UC11 AC7). NE LÈVE JAMAIS.
+  private static function oublierDemarragesDemon() {
+    try {
+      cache::delete(self::CLE_CACHE_DEMARRAGE_DEMON);
+    } catch (Throwable $e) {
+      log::add('jeeroborock', 'warning', 'oublierDemarragesDemon : échec de purge : ' . $e->getMessage());
     }
   }
 
@@ -708,14 +994,18 @@ class jeeroborock extends eqLogic {
     }
 
     $reamorcageNecessaire = false;
+    $nbActifs = 0;
+    $nbPerimes = 0;
 
     foreach (eqLogic::byType('jeeroborock', true) as $eqLogic) {
+      $nbActifs++;
       try {
         $cmd = $eqLogic->getCmd('info', 'derniere_maj');
         if (!is_object($cmd)) {
           // Jamais lu : on ne sait rien affirmer sur la connexion (D-10-6), on demande
           // seulement un réarmement.
           $reamorcageNecessaire = true;
+          $nbPerimes++;
           continue;
         }
 
@@ -724,6 +1014,7 @@ class jeeroborock extends eqLogic {
         $collecte = trim((string) $cmd->getCache('collectDate', ''));
         if ($collecte == '') {
           $reamorcageNecessaire = true;
+          $nbPerimes++;
           continue;
         }
 
@@ -734,6 +1025,7 @@ class jeeroborock extends eqLogic {
 
         if ((time() - $horodatage) > self::DELAI_FRAICHEUR_S) {
           $reamorcageNecessaire = true;
+          $nbPerimes++;
           $eqLogic->checkAndUpdateCmd('connecte', 0);
           log::add('jeeroborock', 'info', 'cron : donnée périmée pour l\'équipement ' . $eqLogic->getId() . ', bascule en déconnecté');
         }
@@ -751,6 +1043,34 @@ class jeeroborock extends eqLogic {
       // Le redémarrage du démon lui-même est l'affaire de plugin::checkDeamon().
       log::add('jeeroborock', 'debug', 'cron : réarmement différé, démon non actif');
       return;
+    }
+
+    // UC11/AC1/AC3 : sonde de session sans quota, seulement quand TOUS les équipements
+    // actifs sont périmés (périmés == actifs, actifs non nul) : un seul robot éteint est
+    // un cas nominal isolé, qui ne doit déclencher aucun appel cloud.
+    if ($nbActifs > 0 && $nbPerimes >= $nbActifs) {
+      if (!self::reauthRequise() && self::sondeCompteAFaire()) {
+        $verdict = self::sonderCompte();
+        if ($verdict !== 'OK') {
+          // AUTH_EXPIRED : le drapeau est déjà levé par l'entonnoir de
+          // jeeroborockDaemon::appeler(), restaurerSessionDemon() serait de toute façon
+          // un no-op. INDISPONIBLE (cloud injoignable, etc.) : inutile de tenter un
+          // réarmement MQTT immédiat. Dans les deux cas, pas de réarmement.
+          return;
+        }
+      } elseif (self::reauthRequise()) {
+        // Le drapeau est déjà levé (par un appel précédent) : aucune sonde tant que
+        // l'utilisateur n'a pas relancé UC04, restaurerSessionDemon() est un no-op.
+        return;
+      } elseif (!self::sondeCompteAFaire()) {
+        // Backoff de la sonde en cours : on ne sait pas si la session est toujours
+        // valide, on ne réarme pas sur cette hypothèse.
+        return;
+      }
+    } else {
+      // Au moins un robot frais : la session fonctionne visiblement, la progression
+      // d'escalade de la sonde n'a plus lieu d'être.
+      self::oublierSondeCompte();
     }
 
     if (self::relanceSupervisionRecente()) {
@@ -937,6 +1257,10 @@ class jeeroborock extends eqLogic {
     if (!self::estCompteLie()) {
       throw jeeroborockDaemon::erreurLocale('NOT_AUTHENTICATED');
     }
+    if (self::reauthRequise()) {
+      // UC11/AC5 : refus local, AVANT tout appel démon (coût réseau et quota nul).
+      throw jeeroborockDaemon::erreurLocale('AUTH_EXPIRED');
+    }
 
     $definitions = self::definitionsActions();
     if (!isset($definitions[$_action]) || empty($definitions[$_action]['demon'])) {
@@ -1046,6 +1370,10 @@ class jeeroborock extends eqLogic {
     }
     if (!self::estCompteLie()) {
       throw jeeroborockDaemon::erreurLocale('NOT_AUTHENTICATED');
+    }
+    if (self::reauthRequise()) {
+      // UC11/AC5 : refus local, AVANT tout appel démon (coût réseau et quota nul).
+      throw jeeroborockDaemon::erreurLocale('AUTH_EXPIRED');
     }
 
     $r = jeeroborockDaemon::appeler(
@@ -1272,6 +1600,10 @@ class jeeroborock extends eqLogic {
     if (!self::estCompteLie()) {
       throw jeeroborockDaemon::erreurLocale('NOT_AUTHENTICATED');
     }
+    if (self::reauthRequise()) {
+      // UC11/AC5 : refus local, AVANT tout appel démon (coût réseau et quota nul).
+      throw jeeroborockDaemon::erreurLocale('AUTH_EXPIRED');
+    }
     if ($this->synchroRoutinesRecente()) {
       throw jeeroborockDaemon::erreurLocale('ROUTINE_SYNC_RECENTE');
     }
@@ -1411,6 +1743,10 @@ class jeeroborock extends eqLogic {
     }
     if (!self::estCompteLie()) {
       throw jeeroborockDaemon::erreurLocale('NOT_AUTHENTICATED');
+    }
+    if (self::reauthRequise()) {
+      // UC11/AC5 : refus local, AVANT tout appel démon (coût réseau et quota nul).
+      throw jeeroborockDaemon::erreurLocale('AUTH_EXPIRED');
     }
     if ($_cmd->getConfiguration('routineObsolete', 0) == 1) {
       // AVANT tout appel démon : chemin déterministe d'AC4, zéro requête HTTPS.

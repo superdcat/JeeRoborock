@@ -55,7 +55,16 @@ class jeeroborockDaemon {
     log::add('jeeroborock', 'debug', 'Appel demon operation=' . $_operation . ' parametres=' . implode(',', array_keys(is_array($_parametres) ? $_parametres : array())));
 
     $reponse = self::executerRequete('POST', '/rpc', $corps, $timeout);
-    return self::interpreterReponse($reponse['httpCode'], $reponse['corps'], $_operation);
+    try {
+      return self::interpreterReponse($reponse['httpCode'], $reponse['corps'], $_operation);
+    } catch (jeeroborockException $e) {
+      // UC11/AC1 : entonnoir UNIQUE de detection - toute operation qui revient en
+      // AUTH_EXPIRED leve le drapeau absorbant, quelle que soit l'operation appelante.
+      if ($e->getCodeErreur() === 'AUTH_EXPIRED') {
+        jeeroborock::signalerReauthRequise('CANAL');
+      }
+      throw $e;
+    }
   }
 
   // Sonde de sante du canal local (bouton "Verifier le canal"). Ne teste PAS le lien au

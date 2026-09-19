@@ -372,6 +372,41 @@ défaillance du tuyau local. Justification et statuts HTTP : spec technique UC03
 - La table PHP est livrée **complète** dès UC03, codes émis plus tard compris : c'est une table de
   **données contractuelle**, pas du code mort.
 
+## 9. Journalisation de la librairie — elle imprime des secrets (constaté en UC11, 2026-09-19)
+
+Le code du plugin peut être irréprochable et le log fuir quand même : ce sont **les loggers de
+`python-roborock`** qui impriment. `jeedom_utils.set_log_level()` fait un `logging.basicConfig()` sur le
+logger **racine**, et les loggers de la librairie y **propagent** — le niveau choisi par l'utilisateur
+dans Jeedom s'applique donc tel quel à la librairie. Deux fuites vérifiées en 7.8.0 :
+
+| Niveau | Où | Ce qui part dans le log |
+|---|---|---|
+| **INFO** | `web_api.py`, requête préparée, sur erreur de type de contenu : `_LOGGER.info("Resp: %s", resp_json)` puis `_LOGGER.info("Resp raw: %s", resp_raw)` | Le **corps brut de la réponse HTTP**. Sur le login par code, ce corps **est** le `UserData` : jeton + secrets `rriot`. |
+| **ERROR — donc au niveau par défaut de Jeedom** | tout `logging.*(..., exc_info=True)` sur un chemin qui enveloppe une exception de la librairie | Une trace Python n'imprime **pas** les variables locales (contrairement à PHP, qui imprime les arguments de frame), **mais elle imprime le `str()` de chaque exception de la chaîne de causes**. Or `web_api.py` interpole la réponse `homedata` dans ses messages — donc les **`local_key` de tous les robots**. |
+
+Effets secondaires au niveau DEBUG, moins graves mais sans valeur diagnostique ici : la session MQTT de
+la librairie journalise le **nom d'utilisateur MQTT**, les **topics non caviardés** et les trames.
+
+**Parades retenues en UC11** (`resources/demond/erreurs.py` et `jeeroborockd.py`) :
+
+1. Une trace maison qui ne conserve que les frames (`traceback.format_tb` : fichier, ligne, fonction,
+   texte source) et la chaîne des **noms de classes** d'exception — **jamais `str(exc)`**. Elle remplace
+   les `exc_info=True` du routage de `canal.py`.
+2. Un **plafond de verbosité par logger tiers**, appliqué juste après `set_log_level()` :
+   `roborock.web_api` à `WARNING` (supprime les deux lignes qui impriment un corps HTTP), les autres
+   (`roborock`, `aiohttp`, `aiomqtt`, `asyncio`) à `INFO`.
+
+⚠️ **Le plafond s'écrit obligatoirement `setLevel(max(niveau_racine, plafond))`.** Le handler installé
+par `basicConfig()` est en `NOTSET` : un `setLevel(INFO)` posé sur un logger enfant alors que la racine
+est à `ERROR` **augmenterait** la verbosité au lieu de la réduire — exactement l'inverse de l'objectif.
+⚠️ Une table de plafonds est une liste **fermée** : un logger tiers non listé reste au niveau choisi par
+l'utilisateur. À contrôler en recette en listant `logging.Logger.manager.loggerDict` sur un démon réel
+lancé en `debug`, connexion et MQTT établis.
+
+**Contrôle statique reproductible** : un `grep` des traces complètes sous `resources/demond/` ne doit
+renvoyer que les occurrences des **chemins locaux** du plugin (messages produits par le plugin
+lui-même) — jamais un chemin qui enveloppe une exception de la librairie.
+
 ## Sources
 
 - `python-roborock` 7.8.0 : `roborock/web_api.py`, `roborock/data/containers.py`,

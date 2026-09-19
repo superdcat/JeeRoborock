@@ -45,6 +45,10 @@ try {
     jeeroborock::traiterPoussee($resultat['robots']);
     $traite = true;
   }
+  if (isset($resultat['compte']) && is_array($resultat['compte'])) {
+    jeeroborock::traiterEtatCompte($resultat['compte']);
+    $traite = true;
+  }
   if (!$traite) {
     log::add('jeeroborock', 'debug', 'Callback demon : cles recues ' . jeeroborock::nettoyerPourLog(implode(', ', array_keys($resultat))));
   }

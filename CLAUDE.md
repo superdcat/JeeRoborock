@@ -225,7 +225,17 @@ Disposition Jeedom fixe (type MVC), nommée d'après l'id `jeeroborock`.
   obtenu après authentification (jeton + identifiants dérivés `rriot`), `base_url` régionale, port du
   canal HTTP local du démon. Clés posées en UC01 : **`email`**, **`portDemonHttp`** (défaut **61350**, à
   lire **uniquement** via `jeeroborock::getPortDemonHttp()`) et **`userData`** ; UC04 y ajoute
-  **`baseUrl`** (serveur régional retourné par le login — non chiffrée, **sans champ de formulaire**).
+  **`baseUrl`** (serveur régional retourné par le login — non chiffrée, **sans champ de formulaire**) ;
+  UC11 y ajoute **`reauthRequise`** (drapeau `'1'` / absent — l'**état absorbant** « ré-authentification
+  requise », non chiffré, sans champ de formulaire ni ligne de défaut `.ini`). ⚠️ Ce drapeau est en
+  **configuration et non en cache** délibérément : il ne doit ni expirer tout seul ni disparaître au
+  redémarrage du démon, sinon les tentatives automatiques repartiraient. Il se lit **uniquement** via
+  `jeeroborock::reauthRequise()`, se lève **uniquement** via `signalerReauthRequise()` (appelée depuis
+  l'entonnoir unique de `jeeroborockDaemon::appeler()` et le push `compte` du démon) et s'efface
+  **uniquement** via `effacerReauthRequise()` — appelée dans `enregistrerSession()` juste avant
+  l'écriture de `userData`, par « Tester la connexion », et par `oublierSession()`. ⚠️ **Tout nouveau
+  chemin qui écrit `userData` doit effacer ce drapeau**, sans quoi le plugin reste figé après une
+  ré-authentification réussie.
   ⚠️ Le `userData` est stocké en **`base64(JSON compact)` opaque**, jamais en JSON nu : `config::byKey`
   applique `is_json()` et relirait un JSON **en tableau PHP**, ce qui perdrait `rriot.r`
   **silencieusement** à l'aller-retour. L'état « compte lié » se lit **uniquement** via
@@ -371,6 +381,18 @@ Le hook est **non-bloquant** : il avertit si la version n'a pas pu être incrém
   ⚠️ **Les fichiers Python sont en LF**, seule exception au CRLF du dépôt : `verif-plugin.py` ne les
   analyse pas, `.gitattributes` n'impose rien sur `*.py`, et le bot prettier ne les reformate pas.
 - Logs via `log::add('jeeroborock', 'debug'|'info'|'warning'|'error', $msg)` ; **jamais** de secret exposé.
+- ⚠️ **Journalisation du démon (posée en UC11) : la fuite ne vient pas du code du plugin, elle vient des
+  loggers de `python-roborock`**, qui propagent vers le logger racine configuré par
+  `jeedom_utils.set_log_level()`. Deux règles à ne pas défaire :
+  1. **Ne jamais journaliser une exception de la librairie avec sa trace complète** (`exc_info=True`) sur
+     un chemin qui l'enveloppe : une trace Python imprime le **texte** de chaque exception de la chaîne,
+     et les messages de `web_api.py` interpolent la réponse `homedata`, donc les **`local_key`**. Utiliser
+     `erreurs.trace_sure()` (frames + noms de classes, jamais `str(exc)`).
+  2. **Conserver `jeeroborockd.brider_loggers_tiers()`** et son `max(niveau_racine, plafond)` : sans le
+     `max()`, le plafond **augmente** la verbosité au lieu de la réduire (le handler de `basicConfig()`
+     est en `NOTSET`). `roborock.web_api` est plafonné à `WARNING` parce que deux de ses lignes `INFO`
+     impriment un **corps HTTP brut** — au login, c'est le `UserData`.
+  Détail et procédure de contrôle : `.memory/analyse/jeeroborock-cloud-api.md` § 9.
 - **Robustesse cron** : un équipement en erreur ne doit **pas** interrompre la boucle → `try/catch` **par
   équipement**. Respecter tout **rate-limit / quota** d'une API tierce (backoff sur 429, cooldown).
 - Les `.htaccess` de `core/php`, `core/class`, `core/ajax`, `resources/`… interdisent l'accès web direct —
@@ -414,11 +436,15 @@ traduction : la clé EST le texte français). Langues cibles usuelles : **`en_US
     test de connexion → découverte des équipements → commandes info → commandes d'action →
     **routines (« usages »)**. L'UC 09 est l'exigence explicite de l'utilisateur ; elle passe par du pur
     HTTPS relayé par le cloud et fonctionne donc **même si le canal MQTT du robot est indisponible**.
-  - **`post-mvp/05-temps-reel-et-robustesse/`** (10→11) — push MQTT et fraîcheur (UC10), puis robustesse
-    et ré-authentification (UC11). Depuis UC10, le plugin ne s'arrête plus à un rafraîchissement à la
-    demande : le démon porte la cadence (30 s en nettoyage / 60 s au repos) et le cron PHP s'est reconverti
-    en **chien de garde de fraîcheur** (bascule « déconnecté » au-delà de 180 s, réarmement du superviseur
-    sous garde anti-rafale de 600 s).
+  - **`post-mvp/05-temps-reel-et-robustesse/`** (10→11) — **domaine livré**. Push MQTT et fraîcheur
+    (UC10), puis robustesse et ré-authentification (UC11). Depuis UC10, le plugin ne s'arrête plus à un
+    rafraîchissement à la demande : le démon porte la cadence (30 s en nettoyage / 60 s au repos) et le
+    cron PHP s'est reconverti en **chien de garde de fraîcheur** (bascule « déconnecté » au-delà de
+    180 s, réarmement du superviseur sous garde anti-rafale de 600 s). UC11 y ajoute l'**état absorbant**
+    (cf. Configuration & secrets), **trois backoffs** — sondes du démon 120/300/600 s, sonde de session
+    du cron 900→21600 s, et relance du démon 60/300/900/1800 s portée par `deamon_info()['launchable']`,
+    seul levier que le core consulte avant de relancer — et le **durcissement de la journalisation du
+    démon** (cf. Conventions).
   - **`post-mvp/10-etats-detailles/`** (12→15) — consommables, station d'accueil, erreurs, widget tuile.
   - **`post-mvp/20-carte-et-pieces/`** (16→19) — pièces/segments, cartes multiples, image, vue carte.
     Domaine le plus coûteux techniquement.

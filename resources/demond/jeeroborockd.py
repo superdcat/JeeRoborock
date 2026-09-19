@@ -52,6 +52,32 @@ INTERVALLE_MAINTIEN_PID = 60
 
 NOM_DEMON = "jeeroborockd.py"
 
+# UC11/AC6 : plafond de verbosite par logger tiers, applique APRES set_log_level() de
+# jeedom_utils (qui fait logging.basicConfig() sur la racine). setLevel() seul, sans
+# max(niveau_racine, plafond), AUGMENTERAIT la verbosite au lieu de la reduire : le
+# handler installe par basicConfig est en NOTSET, donc un setLevel(INFO) sur un logger
+# enfant alors que la racine est a ERROR laisserait passer les lignes INFO.
+# roborock.web_api -> WARNING : supprime les 2 lignes INFO qui impriment un corps HTTP
+# brut (potentiellement le UserData au login, ou les local_key via homedata). Les autres
+# -> INFO : conserve les lignes utiles a AC3 (reconnexion MQTT), supprime les DEBUG de
+# trames/topics non caviardes.
+PLAFONDS_LOGGERS_TIERS = {
+    "roborock": logging.INFO,
+    "aiohttp": logging.INFO,
+    "aiomqtt": logging.INFO,
+    "asyncio": logging.INFO,
+    "roborock.web_api": logging.WARNING,
+}
+
+
+def brider_loggers_tiers(niveau_racine):
+    """Ne leve jamais (defensif, cote demarrage du demon)."""
+    try:
+        for nom, plafond in PLAFONDS_LOGGERS_TIERS.items():
+            logging.getLogger(nom).setLevel(max(niveau_racine, plafond))
+    except Exception as erreur:
+        logging.warning("brider_loggers_tiers en erreur : %s", erreur)
+
 try:
     import roborock
     _VERSION_ROBOROCK = getattr(roborock, "__version__", None)
@@ -130,6 +156,7 @@ async def principal_async(args):
         )
 
     jeedom_utils.set_log_level(args.loglevel)
+    brider_loggers_tiers(jeedom_utils.convert_log_level(args.loglevel))
 
     com = jeedom_com(apikey=args.apikey, url=args.callback, cycle=supervision.INTERVALLE_LOT_S)
     callback_ok = com.test()

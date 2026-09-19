@@ -36,7 +36,7 @@ import time
 
 from aiohttp import web
 
-from erreurs import CODE_DEFAUT, ErreurDemon, code_pour_exception
+from erreurs import CODE_DEFAUT, ErreurDemon, code_pour_exception, trace_sure
 
 BUDGET_DEFAUT_MS = 10000
 BUDGET_MAX_MS = 60000
@@ -181,14 +181,17 @@ async def handler_rpc(requete):
         )
         return reponse_succes(data)
     except ErreurDemon as erreur:
-        logging.error("Operation %s en erreur [%s]", operation, erreur.code, exc_info=True)
+        # UC11/AC6 : trace_sure() remplace exc_info=True - une trace complete peut
+        # imprimer un corps de reponse Roborock (donc des local_key) via le texte de
+        # l'exception source ; le code stable est deja journalise ici en clair.
+        logging.error("Operation %s en erreur [%s] : %s", operation, erreur.code, trace_sure(erreur))
         return reponse_erreur(erreur.code, erreur.code, detail=erreur.detail)
-    except asyncio.TimeoutError:
-        logging.error("Operation %s en erreur [OPERATION_TIMEOUT]", operation, exc_info=True)
+    except asyncio.TimeoutError as erreur:
+        logging.error("Operation %s en erreur [OPERATION_TIMEOUT] : %s", operation, trace_sure(erreur))
         return reponse_erreur("OPERATION_TIMEOUT", "OPERATION_TIMEOUT")
     except Exception as erreur:
         code, nom_classe = code_pour_exception(erreur)
-        logging.error("Operation %s en erreur [%s]", operation, code, exc_info=True)
+        logging.error("Operation %s en erreur [%s] : %s", operation, code, trace_sure(erreur))
         return reponse_erreur(code, nom_classe)
 
 

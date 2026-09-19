@@ -68,7 +68,10 @@
         "Commande « %s » transmise au robot.": "Comando «%s» enviado al robot.",
         "État rafraîchi.": "Estado actualizado.",
         "Usage Roborock %s": "Rutina Roborock %s",
-        "Usage « %s » lancé.": "Rutina «%s» iniciada."
+        "Usage « %s » lancé.": "Rutina «%s» iniciada.",
+        "Le compte Roborock doit être ré-authentifié : la session a expiré ou a été révoquée. Ouvrez la configuration du plugin et demandez un nouveau code de connexion.": "La cuenta Roborock debe volver a autenticarse: la sesión ha expirado o ha sido revocada. Abra la configuración del plugin y solicite un nuevo código de conexión.",
+        "Si vous pensez qu'il s'agit d'une erreur, le bouton \"Tester la connexion\" revérifie la session sans consommer de quota.": "Si cree que se trata de un error, el botón \"Probar la conexión\" vuelve a comprobar la sesión sin consumir cuota.",
+        "Démarrage du démon différé après %s échec(s) rapproché(s) : nouvelle tentative dans %s seconde(s).": "Inicio del demonio retrasado tras %s fallo(s) reciente(s): nuevo intento en %s segundo(s)."
     },
     "plugins/jeeroborock/core/class/jeeroborockDaemon.class.php": {
         "Erreur inattendue du démon. Consultez le log du plugin.": "Error inesperado del demonio. Consulte el registro del plugin.",
