@@ -71,9 +71,21 @@
         "Usage « %s » lancé.": "Rutina «%s» iniciada.",
         "Le compte Roborock doit être ré-authentifié : la session a expiré ou a été révoquée. Ouvrez la configuration du plugin et demandez un nouveau code de connexion.": "La cuenta Roborock debe volver a autenticarse: la sesión ha expirado o ha sido revocada. Abra la configuración del plugin y solicite un nuevo código de conexión.",
         "Si vous pensez qu'il s'agit d'une erreur, le bouton \"Tester la connexion\" revérifie la session sans consommer de quota.": "Si cree que se trata de un error, el botón \"Probar la conexión\" vuelve a comprobar la sesión sin consumir cuota.",
-        "Démarrage du démon différé après %s échec(s) rapproché(s) : nouvelle tentative dans %s seconde(s).": "Inicio del demonio retrasado tras %s fallo(s) reciente(s): nuevo intento en %s segundo(s)."
+        "Démarrage du démon différé après %s échec(s) rapproché(s) : nouvelle tentative dans %s seconde(s).": "Inicio del demonio retrasado tras %s fallo(s) reciente(s): nuevo intento en %s segundo(s).",
+        "Usure brosse principale": "Desgaste restante del cepillo principal",
+        "Usure brosse latérale": "Desgaste restante del cepillo lateral",
+        "Usure filtre": "Desgaste restante del filtro",
+        "Usure capteurs": "Desgaste restante de los sensores",
+        "Usure rouleau de serpillière": "Desgaste restante del rodillo de fregado",
+        "Réinitialiser la brosse principale": "Reiniciar el cepillo principal",
+        "Réinitialiser la brosse latérale": "Reiniciar el cepillo lateral",
+        "Réinitialiser le filtre": "Reiniciar el filtro",
+        "Réinitialiser les capteurs": "Reiniciar los sensores",
+        "Réinitialiser le rouleau de serpillière": "Reiniciar el rodillo de fregado",
+        "Compteur d'usure de « %s » réinitialisé.": "Contador de desgaste de «%s» reiniciado."
     },
     "plugins/jeeroborock/core/class/jeeroborockDaemon.class.php": {
+        "Ce consommable n'est pas suivi pour ce robot : rafraîchissez son état avant de le réinitialiser.": "Este consumible no se controla para este robot: actualice su estado antes de reiniciarlo.",
         "Erreur inattendue du démon. Consultez le log du plugin.": "Error inesperado del demonio. Consulte el registro del plugin.",
         "Le démon ne répond pas : vérifiez qu'il est démarré dans la configuration du plugin.": "El demonio no responde: compruebe que está iniciado en la configuración del plugin.",
         "Le démon n'a pas répondu dans le délai imparti.": "El demonio no respondió en el tiempo previsto.",

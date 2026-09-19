@@ -71,9 +71,21 @@
         "Usage « %s » lancé.": "Routine \"%s\" started.",
         "Le compte Roborock doit être ré-authentifié : la session a expiré ou a été révoquée. Ouvrez la configuration du plugin et demandez un nouveau code de connexion.": "The Roborock account must be re-authenticated: the session has expired or been revoked. Open the plugin configuration and request a new login code.",
         "Si vous pensez qu'il s'agit d'une erreur, le bouton \"Tester la connexion\" revérifie la session sans consommer de quota.": "If you think this is a mistake, the \"Test the connection\" button rechecks the session without using any quota.",
-        "Démarrage du démon différé après %s échec(s) rapproché(s) : nouvelle tentative dans %s seconde(s).": "Daemon startup delayed after %s recent failure(s): next attempt in %s second(s)."
+        "Démarrage du démon différé après %s échec(s) rapproché(s) : nouvelle tentative dans %s seconde(s).": "Daemon startup delayed after %s recent failure(s): next attempt in %s second(s).",
+        "Usure brosse principale": "Main brush wear remaining",
+        "Usure brosse latérale": "Side brush wear remaining",
+        "Usure filtre": "Filter wear remaining",
+        "Usure capteurs": "Sensor wear remaining",
+        "Usure rouleau de serpillière": "Mop roller wear remaining",
+        "Réinitialiser la brosse principale": "Reset the main brush",
+        "Réinitialiser la brosse latérale": "Reset the side brush",
+        "Réinitialiser le filtre": "Reset the filter",
+        "Réinitialiser les capteurs": "Reset the sensors",
+        "Réinitialiser le rouleau de serpillière": "Reset the mop roller",
+        "Compteur d'usure de « %s » réinitialisé.": "Wear counter for \"%s\" reset."
     },
     "plugins/jeeroborock/core/class/jeeroborockDaemon.class.php": {
+        "Ce consommable n'est pas suivi pour ce robot : rafraîchissez son état avant de le réinitialiser.": "This consumable is not tracked for this robot: refresh its status before resetting it.",
         "Erreur inattendue du démon. Consultez le log du plugin.": "Unexpected daemon error. Check the plugin log.",
         "Le démon ne répond pas : vérifiez qu'il est démarré dans la configuration du plugin.": "The daemon is not responding: check that it is started in the plugin configuration.",
         "Le démon n'a pas répondu dans le délai imparti.": "The daemon did not respond within the allotted time.",

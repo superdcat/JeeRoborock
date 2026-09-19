@@ -40,12 +40,19 @@
 # puis tout recreer) interromprait le temps reel de TOUS les robots a chaque tick de
 # cron des qu'UN robot est hors ligne - cas NOMINAL, pas une panne. demarrer() et
 # _reconcilier() ne touchent donc JAMAIS une sonde vivante.
+#
+# UC12 (consommables et usure) greffe un CYCLE LENT (1x/heure) a l'interieur de la
+# _sonde EXISTANTE, en tete d'iteration - PAS de nouvelle tache asyncio. demarrer(),
+# arreter() et _reconcilier() restent STRICTEMENT INCHANGEES (idempotence UC10 non
+# touchee, exigence d'acceptation).
 
 import asyncio
 import hashlib
 import logging
 import re
+import time
 
+import consommables
 import libelles
 import robots
 from erreurs import code_pour_exception
@@ -63,6 +70,11 @@ FENETRE_COALESCENCE_S = 1.0
 DELAI_SONDAGE_S = 12
 MOTIF_DUID = r"\A[A-Za-z0-9_.-]{4,128}\z"   # SANS deux-points (cf. R8)
 CODES_ARRET = {"AUTH_EXPIRED", "NOT_AUTHENTICATED"}
+
+# UC12 - cycle lent des consommables, greffe EN TETE de chaque iteration de _sonde().
+CADENCE_CONSOMMABLES_S = 3600
+CADENCE_CONSOMMABLES_ECHEC_S = 300
+DELAI_CONSO_SONDE_S = 10
 
 _RE_DUID = re.compile(MOTIF_DUID)
 
@@ -273,9 +285,22 @@ async def _sonde(contexte, appareil, evenement):
     jamais la sonde ni les autres robots."""
     echecs_consecutifs = 0
     avec_en_ligne = True  # premier lot uniquement (R5 : device_info.online est figee)
+    echeance_conso = 0.0  # 0.0 -> lecture des la 1re iteration (UC12)
 
     while True:
         try:
+            # UC12 - cycle lent des consommables, EN TETE d'iteration, AVANT l'attente
+            # d'evenement. try/except PROPRE et ISOLE : ne peut interrompre ni la sonde
+            # d'etat de CE robot, ni celle d'un AUTRE robot.
+            if time.monotonic() >= echeance_conso:
+                try:
+                    await asyncio.wait_for(appareil.v1_properties.consumables.refresh(), DELAI_CONSO_SONDE_S)
+                    echeance_conso = time.monotonic() + CADENCE_CONSOMMABLES_S
+                except Exception as erreur:
+                    code, _nom = code_pour_exception(erreur)
+                    logging.info("supervision._sonde : lecture des consommables en echec duid=%s motif=%s", _texte(appareil.duid, 16), code)
+                    echeance_conso = time.monotonic() + CADENCE_CONSOMMABLES_ECHEC_S
+
             status = appareil.v1_properties.status
             if echecs_consecutifs >= SEUIL_ECHECS:
                 # UC11/AC3 : escalade indexee sur le nombre d'echecs au-dela du seuil,
@@ -345,6 +370,12 @@ def _lot(appareil, etat_lu, motif, avec_capacites, avec_en_ligne):
         if avec_capacites:
             features = appareil.v1_properties.device_features
             lot["capacites"] = robots.capacites_etat(status, features)
+    # UC12 - INDEPENDANT de etat_lu (cycles distincts) : le push dps 125/126/127 met le
+    # trait consumables a jour en RAM sans RPC, donc un lot peut porter un instantane a
+    # jour meme quand ce cycle-la n'a pas relu le status. Cout nul si le trait est vide.
+    bloc_conso = consommables.bloc(appareil.v1_properties.consumables)
+    if bloc_conso is not None:
+        lot["consommables"] = bloc_conso
     return lot
 
 

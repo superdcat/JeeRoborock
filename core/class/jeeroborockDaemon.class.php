@@ -30,6 +30,7 @@ class jeeroborockDaemon {
   const TIMEOUT_ACTION       = 35;    // s, envoyerCommande (demon borne a 30 s, cf. UC08 § Budget)
   const TIMEOUT_ROUTINES_SYNC = 20;   // s, listerRoutines (demon borne a 15 s, cf. UC09 § Budget)
   const TIMEOUT_ROUTINE_EXEC  = 20;   // s, executerRoutine (demon borne a 15 s, cf. UC09 § Budget)
+  const TIMEOUT_CONSO_RESET  = 35;    // s, reinitialiserConsommable (demon borne a 30 s, cf. UC12 § Budget)
   const TIMEOUT_MAX          = 60;    // s, plafond dur - garantit AC1 quel que soit l'appelant
   const TIMEOUT_CONNEXION_MS = 2000;  // ms, connexion loopback
   const MARGE_BUDGET_MS      = 1000;  // ms laissees au demon pour serialiser sa reponse
@@ -272,6 +273,11 @@ class jeeroborockDaemon {
       'ROUTINE_OBSOLETE'      => __('Cet usage a été supprimé dans l\'application Roborock : supprimez cette commande ou relancez une synchronisation des usages.', __FILE__),
       'ROUTINE_INTROUVABLE'   => __('Le cloud Roborock n\'a pas pu exécuter cet usage : il est peut-être introuvable ou obsolète. Relancez une synchronisation des usages.', __FILE__),
       'ROUTINE_SYNC_RECENTE'  => __('Une synchronisation des usages vient d\'être effectuée : patientez une minute avant de relancer.', __FILE__),
+
+      // Famille C - consommables et usure (UC12). CONSOMMABLE_INCONNU est un état métier
+      // décidé par le PHP (clé absente de la table, ou commande d'usure jamais créée) :
+      // il ne doit SURTOUT PAS entrer dans jeeroborockException::estErreurCanal().
+      'CONSOMMABLE_INCONNU' => __('Ce consommable n\'est pas suivi pour ce robot : rafraîchissez son état avant de le réinitialiser.', __FILE__),
     );
   }
 }

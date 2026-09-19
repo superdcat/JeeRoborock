@@ -94,6 +94,12 @@ class jeeroborock extends eqLogic {
   const CLE_CACHE_DEMARRAGE_DEMON    = 'jeeroborock::demarrageDemon';
   const DUREE_CACHE_DEMARRAGE_DEMON  = 86400; // s
 
+  // Consommables et usure (UC12). Une seule table porte a la fois l'info et l'action
+  // (impossible de creer un reset orphelin, cf. definitionsConsommables()).
+  const ORDRE_BASE_CONSOMMABLES       = 12;    // info 12-16 (plage reservee UC12-15)
+  const ORDRE_BASE_RESET_CONSOMMABLES = 100;   // actions 100-104 (routines occupent 30-93)
+  const PREFIXE_CMD_RESET_CONSO       = 'reset_';
+
   // Attention : userData contient le jeton de session et les identifiants dérivés rriot.
   // Ne jamais définir preConfig_userData / postConfig_userData : une exception levée depuis
   // une frame qui reçoit ce paramètre exposerait le secret via displayException() (trace complète
@@ -1308,6 +1314,11 @@ class jeeroborock extends eqLogic {
       $this->appliquerCapacites(isset($_reponse['capacites']) && is_array($_reponse['capacites']) ? $_reponse['capacites'] : array());
       $this->appliquerValeurs(isset($_reponse['etat']) && is_array($_reponse['etat']) ? $_reponse['etat'] : array());
     }
+    // UC12 : HORS du garde etatLu (cycle et échec propres, cf. lireEtat/superviseur qui
+    // publient le bloc consommables indépendamment de la lecture d'état).
+    if (isset($_reponse['consommables']) && is_array($_reponse['consommables'])) {
+      $this->appliquerConsommables($_reponse['consommables']);
+    }
   }
 
   // Point d'entrée du lot poussé par le superviseur du démon (UC10, callback jeedom_com).
@@ -1401,6 +1412,9 @@ class jeeroborock extends eqLogic {
 
     $creees = $this->appliquerCapacites(isset($r['capacites']) && is_array($r['capacites']) ? $r['capacites'] : array());
     $this->appliquerValeurs(isset($r['etat']) && is_array($r['etat']) ? $r['etat'] : array());
+    if (isset($r['consommables']) && is_array($r['consommables'])) {
+      $creees += $this->appliquerConsommables($r['consommables']);
+    }
 
     $cmdTotal = 0;
     foreach (array_keys(self::definitionsCommandes()) as $logicalId) {
@@ -1585,6 +1599,205 @@ class jeeroborock extends eqLogic {
     // n'est défini (widgets par défaut au MVP).
     $cmd->save();
     return $cmd;
+  }
+
+  /*     * ***********************Consommables et usure (UC12)****************** */
+
+  // Table statique des 5 consommables, portant À LA FOIS l'info et l'action associée
+  // (impossible de créer un reset orphelin). Littérales __() DANS la table (jamais
+  // __($variable) au point d'usage, l'extraction i18n est un scan statique).
+  private static function definitionsConsommables() {
+    return array(
+      'brosse_principale' => array(
+        'cleDemon'      => 'brossePrincipale',
+        'logicalIdInfo' => 'usure_brosse_principale',
+        'nomInfo'       => __('Usure brosse principale', __FILE__),
+        'logicalIdAction' => 'reset_brosse_principale',
+        'nomAction'     => __('Réinitialiser la brosse principale', __FILE__),
+        'ordre'         => 0,
+      ),
+      'brosse_laterale' => array(
+        'cleDemon'      => 'brosseLaterale',
+        'logicalIdInfo' => 'usure_brosse_laterale',
+        'nomInfo'       => __('Usure brosse latérale', __FILE__),
+        'logicalIdAction' => 'reset_brosse_laterale',
+        'nomAction'     => __('Réinitialiser la brosse latérale', __FILE__),
+        'ordre'         => 1,
+      ),
+      'filtre' => array(
+        'cleDemon'      => 'filtre',
+        'logicalIdInfo' => 'usure_filtre',
+        'nomInfo'       => __('Usure filtre', __FILE__),
+        'logicalIdAction' => 'reset_filtre',
+        'nomAction'     => __('Réinitialiser le filtre', __FILE__),
+        'ordre'         => 2,
+      ),
+      'capteurs' => array(
+        'cleDemon'      => 'capteurs',
+        'logicalIdInfo' => 'usure_capteurs',
+        'nomInfo'       => __('Usure capteurs', __FILE__),
+        'logicalIdAction' => 'reset_capteurs',
+        'nomAction'     => __('Réinitialiser les capteurs', __FILE__),
+        'ordre'         => 3,
+      ),
+      'rouleau_serpillere' => array(
+        'cleDemon'      => 'rouleauSerpillere',
+        'logicalIdInfo' => 'usure_rouleau_serpillere',
+        'nomInfo'       => __('Usure rouleau de serpillière', __FILE__),
+        'logicalIdAction' => 'reset_rouleau_serpillere',
+        'nomAction'     => __('Réinitialiser le rouleau de serpillière', __FILE__),
+        'ordre'         => 4,
+      ),
+    );
+  }
+
+  // Crée/fait converger les commandes d'usure et de réinitialisation à partir du bloc
+  // "consommables" reçu du démon (lireEtat, envoyerCommande, poussée du superviseur).
+  // Retourne le nombre de commandes CRÉÉES. NE LÈVE JAMAIS : appelée depuis
+  // rafraichirEtat()/appliquerEtatPartiel(), ne doit jamais faire échouer l'appelant.
+  private function appliquerConsommables($_consommables) {
+    if (!is_array($_consommables)) {
+      return 0;
+    }
+    $capacites = (isset($_consommables['capacites']) && is_array($_consommables['capacites'])) ? $_consommables['capacites'] : array();
+    $valeurs = (isset($_consommables['valeurs']) && is_array($_consommables['valeurs'])) ? $_consommables['valeurs'] : array();
+
+    $creees = 0;
+
+    foreach (self::definitionsConsommables() as $suffixe => $definition) {
+      try {
+        $cleDemon = $definition['cleDemon'];
+        // AC2 : capacité fausse (ou absente) -> rien créé, rien écrit, pour NI l'usure
+        // NI le reset.
+        if (empty($capacites[$cleDemon])) {
+          continue;
+        }
+
+        $cmdInfo = $this->getCmd('info', $definition['logicalIdInfo']);
+        if (is_object($cmdInfo)) {
+          // Commande déjà présente (idempotence) : on ne réécrit que le structurel,
+          // jamais name/isVisible/order/isHistorized (personnalisation utilisateur).
+          $cmdInfo->setType('info');
+          $cmdInfo->setSubType('numeric');
+          $cmdInfo->setUnite('%');
+          $cmdInfo->setConfiguration('minValue', 0);
+          $cmdInfo->setConfiguration('maxValue', 100);
+          $cmdInfo->save();
+        } else {
+          $cmdInfo = new jeeroborockCmd();
+          $cmdInfo->setEqLogic_id($this->getId());
+          $cmdInfo->setEqType('jeeroborock');
+          $cmdInfo->setLogicalId($definition['logicalIdInfo']);
+          $cmdInfo->setName($definition['nomInfo']);
+          $cmdInfo->setType('info');
+          $cmdInfo->setSubType('numeric');
+          $cmdInfo->setUnite('%');
+          $cmdInfo->setIsVisible(1);
+          $cmdInfo->setIsHistorized(0);
+          $cmdInfo->setOrder(self::ORDRE_BASE_CONSOMMABLES + $definition['ordre']);
+          $cmdInfo->setConfiguration('minValue', 0);
+          $cmdInfo->setConfiguration('maxValue', 100);
+          // Pas de setTemplate() : save() pose core::default.
+          $cmdInfo->save();
+          $creees++;
+        }
+
+        $cmdAction = $this->getCmd('action', $definition['logicalIdAction']);
+        if (is_object($cmdAction)) {
+          $cmdAction->setType('action');
+          $cmdAction->setSubType('other');
+          $cmdAction->setConfiguration('actionConfirm', 1);
+          $cmdAction->save();
+        } else {
+          $cmdAction = new jeeroborockCmd();
+          $cmdAction->setEqLogic_id($this->getId());
+          $cmdAction->setEqType('jeeroborock');
+          $cmdAction->setLogicalId($definition['logicalIdAction']);
+          $cmdAction->setName($definition['nomAction']);
+          $cmdAction->setType('action');
+          $cmdAction->setSubType('other');
+          $cmdAction->setIsVisible(1);
+          $cmdAction->setOrder(self::ORDRE_BASE_RESET_CONSOMMABLES + $definition['ordre']);
+          $cmdAction->setConfiguration('actionConfirm', 1);
+          // Pas de setValue() (piège isAlreadyInStateAllow()), pas de setIsHistorized
+          // (forcé à 0 pour une action par le cœur).
+          $cmdAction->save();
+          $creees++;
+        }
+
+        // Valeur : liste blanche FERMÉE (aucune boucle générique sur le payload).
+        // Hors [0,100] ou non numérique -> ignorée silencieusement, valeur précédente
+        // conservée (même politique qu'appliquerValeurs()).
+        if (isset($valeurs[$cleDemon]) && is_numeric($valeurs[$cleDemon])) {
+          $valeur = intval($valeurs[$cleDemon]);
+          if ($valeur >= 0 && $valeur <= 100) {
+            $this->checkAndUpdateCmd($definition['logicalIdInfo'], $valeur);
+          } else {
+            log::add('jeeroborock', 'debug', 'appliquerConsommables : valeur hors bornes ignorée pour ' . $definition['logicalIdInfo']);
+          }
+        }
+      } catch (Throwable $e) {
+        log::add('jeeroborock', 'error', 'appliquerConsommables : échec sur le consommable ' . $suffixe . ' : ' . self::nettoyerPourLog(substr($e->getMessage(), 0, 256)));
+      }
+    }
+
+    return $creees;
+  }
+
+  // Réinitialise le compteur d'usure d'un consommable ($_cle = suffixe de
+  // definitionsConsommables(), ex. 'brosse_principale'). Retourne le message FRANÇAIS de
+  // succès (scalaire).
+  public function reinitialiserConsommable($_cle) {
+    $duid = trim((string) $this->getLogicalId());
+    if (!self::duidValide($duid)) {
+      throw jeeroborockDaemon::erreurLocale('DEVICE_UNKNOWN');
+    }
+    if (!self::estCompteLie()) {
+      throw jeeroborockDaemon::erreurLocale('NOT_AUTHENTICATED');
+    }
+    if (self::reauthRequise()) {
+      // UC11/AC5 : refus local, AVANT tout appel démon (coût réseau et quota nul).
+      throw jeeroborockDaemon::erreurLocale('AUTH_EXPIRED');
+    }
+
+    $definitions = self::definitionsConsommables();
+    if (!isset($definitions[$_cle])) {
+      log::add('jeeroborock', 'warning', 'reinitialiserConsommable : consommable inconnu demandé : ' . self::nettoyerPourLog(substr((string) $_cle, 0, 64)));
+      throw jeeroborockDaemon::erreurLocale('CONSOMMABLE_INCONNU');
+    }
+    $definition = $definitions[$_cle];
+
+    // On ne réinitialise pas un compteur dont on n'a jamais constaté l'existence
+    // (message pédagogique de la spec fonctionnelle en cas d'action indisponible).
+    if (!is_object($this->getCmd('info', $definition['logicalIdInfo']))) {
+      throw jeeroborockDaemon::erreurLocale('CONSOMMABLE_INCONNU');
+    }
+
+    try {
+      $r = jeeroborockDaemon::appeler(
+        'reinitialiserConsommable',
+        array('userData' => self::getUserData(), 'baseUrl' => self::getBaseUrlCompte(), 'email' => self::getEmailCompte(), 'duid' => $duid, 'consommable' => $definition['cleDemon']),
+        jeeroborockDaemon::TIMEOUT_CONSO_RESET
+      );
+    } catch (jeeroborockException $e) {
+      if ($e->getCodeErreur() === 'DEVICE_OFFLINE') {
+        $this->checkAndUpdateCmd('connecte', 0);
+      }
+      throw $e;
+    }
+
+    try {
+      if (isset($r['consommables']) && is_array($r['consommables'])) {
+        $this->appliquerConsommables($r['consommables']);
+      }
+    } catch (Throwable $e) {
+      // L'action a réussi : un incident d'écriture ne doit pas la faire apparaître en échec.
+      log::add('jeeroborock', 'error', 'reinitialiserConsommable : échec d\'application des valeurs : ' . self::nettoyerPourLog(substr($e->getMessage(), 0, 256)));
+    }
+
+    log::add('jeeroborock', 'info', 'Compteur d\'usure « ' . $_cle . ' » réinitialisé (équipement ' . $this->getId() . ')');
+
+    return sprintf(__('Compteur d\'usure de « %s » réinitialisé.', __FILE__), $definition['nomInfo']);
   }
 
   /*     * ***********************Routines / usages (UC09)********************* */
@@ -1909,6 +2122,14 @@ class jeeroborockCmd extends cmd {
     // executerAction() -> UNSUPPORTED_COMMAND, un message faux.
     if (strpos((string) $this->getLogicalId(), jeeroborock::PREFIXE_CMD_ROUTINE) === 0) {
       return $eqLogic->executerRoutine($this);
+    }
+
+    // UC12 : une commande reset_* route vers reinitialiserConsommable(), AVANT le
+    // switch. Sans ce test, un logicalId reset_* tomberait dans le "default" ->
+    // executerAction() -> UNSUPPORTED_COMMAND, message faux.
+    if (strpos((string) $this->getLogicalId(), jeeroborock::PREFIXE_CMD_RESET_CONSO) === 0) {
+      $suffixe = substr((string) $this->getLogicalId(), strlen(jeeroborock::PREFIXE_CMD_RESET_CONSO));
+      return $eqLogic->reinitialiserConsommable($suffixe);
     }
 
     switch ($this->getLogicalId()) {

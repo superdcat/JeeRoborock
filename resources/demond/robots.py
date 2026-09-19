@@ -49,6 +49,13 @@
 # d'UC07, rendant une double construction (2 homedata + 2 sessions MQTT) nettement
 # plus probable - dette latente d'UC07, corrigee ici de facon retroactive (profite
 # aussi a lire_etat).
+#
+# UC12 (consommables et usure) greffe sur lire_etat() une lecture best-effort du trait
+# consumables (ConsumableTrait, toujours present en V1) dans la meme echeance globale,
+# et ajoute reinitialiser_consommable() : nouvelle operation, PROPRE liste blanche
+# fermee (RESET_CONSOMMABLES, D-12-3 - pas d'extension de ACTIONS, qui ne porte que des
+# RPC sans parametre). consommables.py est un module de pures donnees, jamais importe
+# par un autre module que celui-ci et supervision.py.
 
 import asyncio
 import hashlib
@@ -58,8 +65,12 @@ import time
 from roborock import RoborockCommand, StatusField, StatusV2
 from roborock.devices.cache import InMemoryCache
 from roborock.devices.device_manager import UserParams, create_device_manager
+# ConsumableAttribute n'est PAS reexporte par roborock/__init__.py (verifie sur la 7.8.0) :
+# il s'importe par son chemin complet, comme le fait la librairie elle-meme dans cli.py.
+from roborock.devices.traits.v1.consumeable import ConsumableAttribute
 
 import canal
+import consommables
 import libelles
 import session
 from erreurs import ErreurDemon, code_pour_exception
@@ -77,6 +88,27 @@ DELAI_ENVOI_MAX_S = 22          # plafond ; la borne reelle est ce qui reste de 
 DELAI_RELECTURE_S = 8
 PAUSE_AVANT_RELECTURE_S = 2.0
 RESTE_MINIMAL_RELECTURE_S = 4
+
+# UC12 - Budget de lire_etat (echeance globale INCHANGEE, DELAI_TOTAL_ETAT_S), bloc
+# consommables ajoute APRES le succes de status.refresh(), best-effort, seulement s'il
+# reste au moins RESTE_MINIMAL_CONSO_S sur l'echeance globale.
+DELAI_TOTAL_ETAT_S = 30
+DELAI_CONSO_S = 8
+RESTE_MINIMAL_CONSO_S = 6
+
+# UC12 - Budget de reinitialiser_consommable (echeance globale : demon <= 30 s < canal
+# 34 s < PHP 35 s, cf. jeeroborockDaemon::TIMEOUT_CONSO_RESET). Aligne sur le precedent
+# d'UC08 (envoyer_commande) : DELAI_RESET_TYPE_S couvre le chemin typE (reset_consumable,
+# qui enchaine envoi ET refresh en un seul appel indivisible) ; DELAI_ENVOI_RESET_S /
+# DELAI_RELECTURE_CONSO_S couvrent le repli non type (deux appels distincts).
+DELAI_TOTAL_RESET_S = 30
+DELAI_RESET_TYPE_S = 25
+DELAI_ENVOI_RESET_S = 22
+DELAI_RELECTURE_CONSO_S = 8
+
+# UC12 - liste blanche FERMEE des consommables reinitialisables (les 5 cles de
+# consommables.TABLE, jamais un ensemble derive de la reponse du robot).
+RESET_CONSOMMABLES = frozenset(consommables.TABLE.keys())
 
 # Liste blanche FERMEE : le PHP ne peut JAMAIS faire emettre une RPC arbitraire au
 # robot, seulement une des 5 clefs ci-dessous.
@@ -279,6 +311,10 @@ def valeurs_etat(status):
 async def lire_etat(parametres, contexte):
     duid_brut = str(parametres.get("duid") or "").strip()
 
+    # UC12 : echeance globale posee EN TETE, couvre aussi le bloc consommables ajoute
+    # plus bas (best-effort, apres le succes de status.refresh()).
+    echeance = time.monotonic() + DELAI_TOTAL_ETAT_S
+
     appareil = await obtenir_appareil(parametres, contexte)
     duid = appareil.duid
 
@@ -334,7 +370,7 @@ async def lire_etat(parametres, contexte):
     # contexte["session"] n'est PAS reecrit ici : cette operation ne reamorce pas la
     # session (aucune 5e occurrence du dict inline, la dette d'UC06 n'est pas aggravee).
 
-    return {
+    resultat = {
         "duid": duid,
         "enLigne": en_ligne,
         "connecte": connecte,
@@ -343,6 +379,24 @@ async def lire_etat(parametres, contexte):
         "capacites": capacites,
         "etat": valeurs,
     }
+
+    # UC12 : bloc consommables BEST-EFFORT, INDEPENDANT du succes ci-dessus (deja acquis
+    # a ce point). Toute exception journalisee en info, la cle "consommables" reste
+    # simplement absente - jamais de regression sur le reste de la reponse (AC1/AC2).
+    reste = echeance - time.monotonic()
+    if reste >= RESTE_MINIMAL_CONSO_S:
+        try:
+            await asyncio.wait_for(appareil.v1_properties.consumables.refresh(), min(DELAI_CONSO_S, reste))
+            bloc_conso = consommables.bloc(appareil.v1_properties.consumables)
+            if bloc_conso is not None:
+                resultat["consommables"] = bloc_conso
+        except Exception as erreur:
+            code, _nom_classe = code_pour_exception(erreur)
+            logging.info("lireEtat : lecture des consommables en echec duid=%s motif=%s", _texte(duid_brut, 16), code)
+    else:
+        logging.info("lireEtat : lecture des consommables sautee (budget insuffisant) duid=%s", _texte(duid_brut, 16))
+
+    return resultat
 
 
 def _erreur_envoi(erreur):
@@ -456,6 +510,69 @@ async def envoyer_commande(parametres, contexte):
     }
 
 
+async def reinitialiser_consommable(parametres, contexte):
+    """UC12/AC3-AC4-AC6. Reinitialise UN consommable puis relit TOUS les compteurs dans
+    le meme echange (jamais de payload brut ["ok"] renvoye au PHP). Chemin type
+    (ConsumableAttribute.from_str + reset_consumable, qui enchaine envoi ET refresh de
+    facon indivisible) prefere ; repli non type pour le rouleau de serpillere, absent de
+    l'enum (D-12-4)."""
+    echeance = time.monotonic() + DELAI_TOTAL_RESET_S
+
+    cle = str(parametres.get("consommable") or "")
+    if cle not in RESET_CONSOMMABLES:
+        logging.error("reinitialiserConsommable : consommable hors liste blanche : %s", _texte(cle, 32))
+        raise ErreurDemon("INTERNAL_ERROR")
+    nom_champ = consommables.TABLE[cle]["champ"]
+
+    appareil = await obtenir_appareil(parametres, contexte)
+    duid = appareil.duid
+
+    connecte = await attendre_connexion(appareil)
+    if not connecte:
+        raise ErreurDemon("DEVICE_OFFLINE")
+
+    # Portee du try/except ValueError - CONTRAINTE D'IMPLEMENTATION (cf. spec technique
+    # UC12 § Reinitialisation). Le try entoure EXCLUSIVEMENT ConsumableAttribute.from_str :
+    # reset_consumable() est HORS de ce try, sous peine d'avaler un ValueError authentique
+    # leve DANS le RPC et de renvoyer une SECONDE commande de reset au robot (repli).
+    try:
+        attribut = ConsumableAttribute.from_str(nom_champ)
+    except ValueError:
+        attribut = None
+
+    try:
+        if attribut is not None:
+            budget = min(DELAI_RESET_TYPE_S, echeance - time.monotonic())
+            if budget < 3:
+                raise ErreurDemon("OPERATION_TIMEOUT")
+            await asyncio.wait_for(appareil.v1_properties.consumables.reset_consumable(attribut), budget)
+        else:
+            budget_envoi = min(DELAI_ENVOI_RESET_S, echeance - time.monotonic())
+            if budget_envoi < 3:
+                raise ErreurDemon("OPERATION_TIMEOUT")
+            await asyncio.wait_for(
+                appareil.v1_properties.command.send(RoborockCommand.RESET_CONSUMABLE, params=[nom_champ]),
+                budget_envoi,
+            )
+            budget_relecture = min(DELAI_RELECTURE_CONSO_S, echeance - time.monotonic())
+            if budget_relecture < 1:
+                raise ErreurDemon("OPERATION_TIMEOUT")
+            await asyncio.wait_for(appareil.v1_properties.consumables.refresh(), budget_relecture)
+    except ErreurDemon:
+        raise
+    except Exception as erreur:
+        # Les erreurs des deux chemins d'envoi remontent normalement a _erreur_envoi() -
+        # aucune n'est reclassee en repli (cf. contrainte de portee ci-dessus).
+        raise _erreur_envoi(erreur) from erreur
+
+    return {
+        "duid": duid,
+        "consommable": cle,
+        "consommables": consommables.bloc(appareil.v1_properties.consumables),
+    }
+
+
 def enregistrer_operations():
     canal.enregistrer("lireEtat", lire_etat)
     canal.enregistrer("envoyerCommande", envoyer_commande)
+    canal.enregistrer("reinitialiserConsommable", reinitialiser_consommable)

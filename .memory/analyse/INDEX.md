@@ -14,7 +14,16 @@
 > Deux analyses **génériques Jeedom** (vérifiées contre la source du core) sont réutilisables par tout
 > plugin ; les analyses préfixées **`jeeroborock-`** sont **propres à ce plugin** (intégration Roborock).
 >
-> **Dernière mise à jour** : 2026-09-19 (UC11 : `jeedom-dependances-et-demon.md` **§ 4 enrichi** —
+> **Dernière mise à jour** : 2026-09-19 (UC12 : `jeeroborock-mqtt-protocole.md` **§ 5 corrigé** — la
+> rédaction précédente était inexacte sur trois points : les 9 champs de `Consumable` ne sont **pas**
+> tous « en secondes » (3 sont des compteurs d'occurrences), les durées de référence sont des constantes
+> **globales non indexées sur le `model`** (un écart avec l'app mobile n'est donc pas un bug de calcul),
+> et `ConsumableAttribute` ne compte que **6** membres — **pas** le rouleau de serpillière, qui exige de
+> reproduire à la main `RESET_CONSUMABLE` avec le **nom de champ** du dataclass. S'y ajoutent :
+> `*_time_left` **devient négatif** quand l'usage dépasse la référence ; le trait n'est **pas** rempli
+> par `discover_features()` ; `reset_consumable()` enchaîne **lui-même** un `refresh()` (valeurs à jour
+> dans le même échange, sans quota) ; et `roborock/__init__.py` **ne réexporte pas** `roborock.devices.*`.
+> Avant : UC11 : `jeedom-dependances-et-demon.md` **§ 4 enrichi** —
 > `deamon_start()` appelle `deamon_info()`, donc un état écrit avant ce contrôle (compteur de backoff)
 > est relu par lui : le démon se refuse à lui-même le droit de démarrer, **définitivement** et dès une
 > installation neuve ; marquer seulement après le contrôle `launchable`, et retenir le test de
@@ -89,6 +98,8 @@
 | **Masquer un secret dans un log** alors que la commande est passée à `escapeshellarg()` | `jeedom-dependances-et-demon.md` § 6 |
 | **Callback démon → Jeedom** (`core/php/jee<Id>.php`) : apikey, `401`, blocage par le `.htaccess` du template | `jeedom-dependances-et-demon.md` § 7 |
 | Démon Python qui **ne démarre pas** : lib `jeedom/jeedom.py` du template non importable ; log muet au niveau par défaut | `jeedom-dependances-et-demon.md` §§ 8-9 |
+| ⚠️ **`ImportError` au démarrage du démon après avoir importé un symbole de `python-roborock`** (`ConsumableAttribute`, classes de traits…) : `roborock/__init__.py` ne réexporte que `data`, `exceptions` et `roborock_typing` — **tout ce qui vit sous `roborock.devices.*` s'importe par son chemin complet** | `jeeroborock-mqtt-protocole.md` § 5 |
+| **Consommables et usure** : quels champs sont en secondes (et lesquels sont des compteurs), durées de référence **non indexées sur le modèle**, `*_time_left` qui devient **négatif**, `ConsumableAttribute` incomplet (pas le rouleau), détection du supporté | `jeeroborock-mqtt-protocole.md` § 5 |
 | **Login Roborock** (code e-mail vs mot de passe), `UserData`/`rriot`, signature Hawk, serveur régional | `jeeroborock-cloud-api.md` §§ 1-3 |
 | ⚠️ **Pièges du limiteur de login** : `code_login_v4` ne consomme **aucun** jeton, compteur **par processus**, une demande peut coûter **2** jetons, **aucun timeout par requête** dans la lib ; `__version__` absent | `jeeroborock-cloud-api.md` § 2.1 |
 | **Persister `UserData`** : `as_dict`/`from_dict` silencieusement tolérants → contrôler `token`/`rriot`/`rriot.r` ; pourquoi le stockage est en **base64 opaque** et jamais en JSON nu | `jeeroborock-cloud-api.md` § 2.3 |

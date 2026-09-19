@@ -161,7 +161,18 @@ Disposition Jeedom fixe (type MVC), nommée d'après l'id `jeeroborock`.
   écouteur de push sur le trait `status`) et publie ses lots par le callback `jeedom_com`. Son état vit
   dans `contexte['superviseur']` ; `demarrer()` est **idempotente** (à empreinte de session identique,
   une sonde vivante n'est ni annulée ni recréée — c'est une exigence d'acceptation, pas une
-  optimisation) : **un robot en défaut ne doit jamais interrompre le suivi d'un autre**. Bilan :
+  optimisation) : **un robot en défaut ne doit jamais interrompre le suivi d'un autre**. UC12 a posé
+  **`consommables.py`** — pures données et calcul (table des 5 consommables, conversion secondes → %
+  d'usure restant), **aucune opération enregistrée**, et l'opération `reinitialiserConsommable` dans
+  `robots.py` (seconde liste blanche **fermée**, distincte de celle d'UC08 : un reset prend un
+  **paramètre** et relit un **autre trait**). ⚠️ `consommables.py` **déroge** à la règle « aucun import
+  de `roborock.*` » que suit `libelles.py` (décision **D-12-5**) : les durées de référence avant
+  remplacement sont un contrat tiers épinglé, les recopier créerait une seconde source de vérité qui se
+  désynchroniserait silencieusement à la montée de version. L'import est donc **gardé**, et `TABLE`
+  reste peuplée de ses 5 clés même sans librairie — sinon la liste blanche du reset se viderait.
+  ⚠️ Corollaire général vérifié en UC12 : **`roborock/__init__.py` ne réexporte pas `roborock.devices.*`**
+  (seulement `data`, `exceptions`, `roborock_typing`) — un symbole de trait importé depuis la racine
+  lève un `ImportError` **au chargement du module**, et le démon ne démarre plus du tout. Bilan :
   **un module par domaine fonctionnel**, enregistré explicitement depuis
   `jeeroborockd.py` — pas par effet de bord d'import. L'instance `RoborockApiClient` vit dans
   `contexte['auth']` et **doit** survivre entre l'envoi du code et sa validation (`header_clientid` dérive
@@ -446,6 +457,13 @@ traduction : la clé EST le texte français). Langues cibles usuelles : **`en_US
     seul levier que le core consulte avant de relancer — et le **durcissement de la journalisation du
     démon** (cf. Conventions).
   - **`post-mvp/10-etats-detailles/`** (12→15) — consommables, station d'accueil, erreurs, widget tuile.
+    **UC12 livrée** : usure en % par consommable réellement remonté par le robot (critère strict
+    « valeur non nulle après un premier refresh » — un consommable absent ne crée **aucune** commande),
+    plus une action de réinitialisation par consommable. La confirmation avant reset utilise le
+    mécanisme **natif du cœur** (`setConfiguration('actionConfirm', 1)` → code `-32006` → dialog) :
+    ne pas réintroduire de JS, de widget ni de double-commande pour ça. ⚠️ Ce n'est **pas** une
+    frontière d'autorisation — un scénario, l'API JSON-RPC ou un appel direct à `execCmd()` la
+    contournent. Le % est calculé **dans le démon** (contrat tiers épinglé, cf. `consommables.py`).
   - **`post-mvp/20-carte-et-pieces/`** (16→19) — pièces/segments, cartes multiples, image, vue carte.
     Domaine le plus coûteux techniquement.
   - **`post-mvp/30-pilotage-fin/`** (20→25) — aspiration, eau, itinéraire/mode, entretien, **nettoyage par

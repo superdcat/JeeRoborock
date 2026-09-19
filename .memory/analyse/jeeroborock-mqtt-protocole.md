@@ -182,16 +182,47 @@ Deux autres pièges de ces enums :
 
 ## 5. Consommables — `ConsumableTrait` (`get_consumable`)
 
-`Consumable` : `main_brush_work_time` (125), `side_brush_work_time` (126), `filter_work_time` (127),
-`filter_element_work_time`, `sensor_dirty_time`, `strainer_work_times`, `dust_collection_work_times`,
-`cleaning_brush_work_times`, `moproller_work_time` — **en secondes d'usage**.
+> **Révisé en UC12** (2026-09-19) — la rédaction précédente était inexacte sur trois points, tous
+> vérifiés depuis sur la 7.8.0 : les 9 champs ne sont **pas** tous en secondes, les constantes ne sont
+> **pas** modulées par modèle, et `ConsumableAttribute` ne couvre **pas** tous les attributs.
+
+`Consumable` (`data/v1/v1_containers.py`) : `main_brush_work_time` (dps 125), `side_brush_work_time`
+(126), `filter_work_time` (127), `filter_element_work_time`, `sensor_dirty_time`, `moproller_work_time`
+— **en secondes d'usage cumulé** ; plus `strainer_work_times`, `dust_collection_work_times`,
+`cleaning_brush_work_times`, qui sont des **compteurs d'occurrences** malgré le commentaire « in
+seconds » de `const.py` (leurs références valent 150, 300 et 90 — 150 s feraient 2,5 min).
+⚠️ Ne pas traiter les 9 champs uniformément : seuls **3** portent une métadonnée dps (125/126/127) et
+se mettent donc à jour **en RAM par push, sans RPC**.
 
 Durées de référence avant remplacement (`roborock/const.py`) : brosse principale 1 080 000 s (300 h),
 brosse latérale 720 000 s (200 h), filtre 540 000 s (150 h), capteurs 108 000 s (30 h), rouleau
-serpillière 1 080 000 s. → le **% d'usure restant** se calcule côté plugin ou côté démon à partir de ces
-constantes.
-Réinitialisation : `reset_consumable(ConsumableAttribute.<X>)` (`reset_consumable`), suivie d'un refresh.
-Les attributs `None` après un premier refresh = **non supportés** par le modèle.
+serpillière 1 080 000 s (300 h).
+⚠️ Ce sont des **constantes globales de la librairie, non indexées sur le `model`** : rien ne garantit
+qu'elles valent pour un robot donné, elles s'y appliquent **par défaut**. Un écart avec les
+pourcentages de l'application mobile est donc possible et ne serait pas un bug de calcul.
+⚠️ `Consumable.*_time_left` fait la soustraction **sans borne** et **devient négatif** dès que l'usage
+dépasse la référence : ne pas l'exposer tel quel. Calculer depuis le champ brut + la constante, avec un
+clamp explicite.
+
+**Le calcul du pourcentage se fait dans le démon** (tranché en UC12, cf. `12-consommables-et-usure-tech.md`) :
+les durées sont un contrat tiers épinglé, les recopier en PHP créerait une seconde source de vérité qui
+se désynchroniserait silencieusement à la prochaine montée de version.
+
+Support : les attributs `None` **après un premier `refresh()`** = non supportés par le modèle — critère
+que la librairie documente elle-même (`traits/v1/consumeable.py`). ⚠️ Le trait n'est **pas** rempli au
+démarrage : `discover_features()` ne le touche pas, il faut un `consumables.refresh()` explicite.
+⚠️ `ConsumableField` ne déclare que **3** membres, donc `is_field_supported()` est **inappelable** pour
+`sensor_dirty_time` et `moproller_work_time` — le critère `is not None` est le seul disponible.
+
+Réinitialisation : `reset_consumable(ConsumableAttribute.<X>)`, qui enchaîne **lui-même** un `refresh()`
+(donc les valeurs à jour reviennent dans le même échange, sans aller-retour supplémentaire ni quota).
+⚠️ `ConsumableAttribute` ne compte que **6** membres — `sensor_dirty_time`, `filter_work_time`,
+`side_brush_work_time`, `main_brush_work_time`, `strainer_work_times`, `cleaning_brush_work_times` — et
+**pas** `moproller_work_time` ni `dust_collection_work_times`. Pour le rouleau de serpillière, il faut
+donc reproduire à la main ce que fait la librairie :
+`command.send(RoborockCommand.RESET_CONSUMABLE, params=["moproller_work_time"])` puis un `refresh()`.
+La valeur envoyée est **exactement le nom du champ** du dataclass (vérifié sur les 6 membres), **jamais**
+une clé interne au plugin — cf. le défaut trouvé en review d'UC12.
 
 ## 6. Commandes (RPC `RoborockCommand`, `roborock/roborock_typing.py`)
 
